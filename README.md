@@ -1,41 +1,57 @@
 # MCP Observatory
 
-A zero-MCP-code-change analytics, health, and telemetry dashboard for MCP servers connected through the OpenAI tunnel client.
+A unified analytics, health, request-inspection, and telemetry dashboard for MCP servers connected through the OpenAI tunnel client.
 
-MCP Observatory sits beside an existing MCP deployment. It reads the tunnel client's existing /metrics, /api/status, /healthz, /readyz, and safe structured log APIs. It never modifies MCP application source code and does not insert a proxy in the request path.
+The observability layer does not modify MCP server source code. It consumes the tunnel client's existing metrics/status/health/log surfaces and can optionally route MCP transport through a narrow capture adapter to make tool input/output inspectable.
 
 ## What it shows
 
 - Request volume over time
 - Average, P50, P95, P99, and maximum end-to-end latency
-- Slowest-request ranking
+- Latency by every configured MCP, including MCPs with no calls in the selected range
+- Labeled X/Y latency axes and Average/P95 legends
+- Clickable MCP latency rows that jump directly to that MCP's Requests view
 - Per-MCP request and latency comparisons
-- Per-request lifecycle with reconstructed input/enqueue time, exact MCP reply time, exact OpenAI delivery time, end-to-end duration, reply-to-delivery overhead, status, error state, and correlation IDs
-- Global MCP filtering
+- Request table defaulting to newest first, with newest/oldest/slowest/fastest toggles
+- Per-request lifecycle with input/enqueue time, MCP response time, OpenAI delivery time, end-to-end duration, reply-to-delivery overhead, status, tool name, and correlation IDs
+- Click any request to inspect captured MCP tool input and output
 - 15 minute, 1 hour, 6 hour, 24 hour, 7 day, and custom date-time windows
-- Live health and readiness
-- Tunnel uptime
-- Queue depth and worker occupancy
-- Poll errors
-- Process RSS and network counters
-- Searchable safe DEBUG lifecycle telemetry
-- Raw tunnel status JSON
-- Raw Prometheus exposition
-- A Prometheus endpoint for the observer itself
+- Live health/readiness, uptime, queue/worker utilization, poll errors, RSS, and network counters
+- Searchable lifecycle telemetry
+- Newest/oldest telemetry ordering
+- Horizontal telemetry scrolling and adjustable 80%-140% table scale
+- Clickable telemetry rows with full metadata drill-down
+- Raw tunnel Status JSON and Prometheus exposition
+- Observer Prometheus metrics
+
+## E2E meaning
+
+E2E means **end-to-end latency**.
+
+In MCP Observatory it is the elapsed time from the tunnel request/enqueue point until the completed response is delivered back to the OpenAI control plane. The Requests tab also shows the narrower MCP reply -> delivery segment separately.
 
 ## Safety and privacy model
 
-MCP Observatory deliberately does not enable the tunnel client's raw HTTP payload logger.
+MCP Observatory does **not** enable the OpenAI tunnel client's unsafe raw HTTP logger.
 
-Safe DEBUG lifecycle events contain metadata such as request IDs, RPC method, status, and timestamps, but not MCP arguments or response bodies. This avoids turning an analytics database into a copy of shell commands, prompts, file contents, credentials, or other sensitive payloads.
+That raw logger can contain authentication headers and other control-plane information. Instead, request inspection is performed at the MCP transport boundary:
+
+- HTTP MCPs can be routed through the local capture adapter.
+- stdio MCPs can be launched through scripts/stdio_capture.py.
+- Only tools/call JSON-RPC data is retained for request inspection.
+- Control-plane headers, OpenAI tunnel headers, authentication headers, and transport headers are never stored by the capture adapter.
+- Common secret fields and inline credentials are redacted before storage, including password/token/secret/API-key/authorization-style values and common token formats.
+- Captures are size bounded. Oversized payloads are stored as a truncated preview.
+
+Tool input/output can still contain sensitive application data by its nature. Protect the Observatory database and Tailscale endpoint accordingly.
 
 ## Request timing
 
-The tunnel exports cumulative end-to-end latency measurements and safe DEBUG lifecycle events. MCP Observatory samples both.
+The tunnel exports cumulative end-to-end latency measurements plus safe lifecycle events. MCP Observatory samples both.
 
-When exactly one tool request completes between samples, the counter/sum delta identifies that request's exact end-to-end duration. The observer reconstructs the input/enqueue timestamp from the exact response-delivery timestamp. These rows are labeled exact-single.
+When exactly one tool request completes between samples, the counter/sum delta identifies that request's end-to-end duration and the observer reconstructs the input/enqueue timestamp. These rows are labeled exact-single.
 
-If several calls complete inside one sampling interval, only their aggregate duration is externally observable. Those rows are explicitly labeled as a batch estimate rather than presented as exact. MCP reply and OpenAI delivery timestamps remain exact because they come from lifecycle events.
+If several calls complete inside one sampling interval, only their aggregate duration is externally observable. Those rows are explicitly labeled as a batch estimate. MCP-response and OpenAI-delivery timestamps remain directly sourced from lifecycle events.
 
 ## Architecture
 
@@ -44,18 +60,31 @@ ChatGPT
    |
 OpenAI MCP control plane
    |
-OpenAI tunnel client ----------------------+
-   |                                       |
-Existing MCP server                        | existing observer surfaces
-(no code changes)                          | metrics/status/health/logs
-                                           v
-                                   MCP Observatory
-                                   FastAPI + SQLite
-                                           |
-                                   Unified dashboard
+OpenAI tunnel client
+   |
+   +----------------------- transport metrics / lifecycle events
+   |
+optional capture boundary
+  | HTTP adapter or stdio wrapper
+  | strips transport/control-plane metadata
+  | retains redacted tools/call input + output
+   |
+Existing MCP server
+(no MCP source changes)
+
+                  metrics + events + captures
+                              |
+                       MCP Observatory
+                       FastAPI + SQLite
+                              |
+                       Unified dashboard
 ~~~
 
-The observer is not in the MCP request path. If it stops, MCP traffic continues normally.
+## Availability design
+
+The underlying MCP server processes are not modified or restarted when deploying the dashboard.
+
+If request-body inspection is enabled by routing a tunnel through the HTTP capture adapter or stdio wrapper, that adapter becomes part of that tunnel's transport path. Deploy it with process supervision and verify tunnel readiness after changes. The supplied Compose service uses restart: unless-stopped.
 
 ## Quick start
 
@@ -106,12 +135,29 @@ Tailscale prints the tailnet-only HTTPS URL.
 
 Override these defaults with MCP_OBS_TUNNELS_JSON. Each entry can provide either a port or an explicit base URL.
 
-Example:
+## Default HTTP capture listeners
+
+The app starts localhost-only HTTP capture adapters for these defaults:
+
+| MCP | Capture listener | Default upstream |
+| --- | ---: | --- |
+| terminal | 127.0.0.1:18900 | 127.0.0.1:8900 |
+| excel | 127.0.0.1:18017 | 127.0.0.1:8017 |
+| personal | 127.0.0.1:18765 | 127.0.0.1:8765 |
+| background | 127.0.0.1:17874 | 127.0.0.1:17873 |
+
+To collect request input/output, point the corresponding tunnel client's MCP URL at the capture listener instead of the upstream port.
+
+For stdio MCPs, launch the existing command through:
 
 ~~~
-export MCP_OBS_TUNNELS_JSON='{"my-mcp":{"name":"My MCP","base":"http://127.0.0.1:9099"}}'
-docker compose up -d --build
+python3 scripts/stdio_capture.py \
+  --mcp playwright \
+  --capture-file /path/to/observatory-data/captures/playwright.jsonl \
+  -- /path/to/original-mcp-command
 ~~~
+
+The capture file directory should be the same directory mounted as /data/captures in the dashboard container.
 
 ## Environment variables
 
@@ -119,20 +165,23 @@ docker compose up -d --build
 | --- | --- | --- |
 | MCP_OBS_DB | /data/observability.db | SQLite database |
 | MCP_OBS_POLL_SECONDS | 1.0 | Collection interval |
-| MCP_OBS_DEBUG_LOGS | true | Enable safe DEBUG lifecycle metadata |
+| MCP_OBS_DEBUG_LOGS | true | Enable safe lifecycle metadata |
 | MCP_OBS_TUNNELS_JSON | built-in six-tunnel map | Custom tunnel definitions |
+| MCP_OBS_CAPTURE_DIR | /data/captures | stdio capture ingest directory |
+| MCP_OBS_MAX_CAPTURE_BYTES | 5242880 | Maximum stored tool request/response capture size |
+| MCP_OBS_HTTP_CAPTURE_JSON | built-in HTTP capture map | Custom capture listener/upstream definitions |
 
-High-frequency metric snapshots are retained for 48 hours. Request lifecycle records and event metadata are retained in SQLite.
+High-frequency metric snapshots are retained for 48 hours. Request lifecycle records and telemetry metadata are retained in SQLite.
 
 ## Dashboard tabs
 
 ### Overview
 
-KPIs, request/latency timeline, latency by MCP, and slowest requests.
+KPIs, request/latency timeline, latency by all configured MCPs, and a newest-first request list with a sort toggle.
 
 ### Requests
 
-Sortable request lifecycle table. Sort by newest, oldest, slowest, fastest, or largest reply-to-delivery overhead.
+Sortable lifecycle table. Click a row for request metadata plus captured input/output when available.
 
 ### Health
 
@@ -140,7 +189,7 @@ Live/ready status, uptime, call counters, poll errors, queue/worker utilization,
 
 ### Telemetry
 
-Search structured lifecycle events by level, message, request ID, or metadata. Inspect current raw tunnel status and Prometheus exposition.
+Search structured lifecycle events by level, message, request ID, or metadata. Sort newest/oldest, scale the table, scroll horizontally, click events for full metadata, and inspect current raw tunnel status or Prometheus exposition.
 
 ## API
 
@@ -149,6 +198,7 @@ Search structured lifecycle events by level, message, request ID, or metadata. I
 - GET /api/config
 - GET /api/summary
 - GET /api/requests
+- GET /api/request/{mcp}/{request_id}
 - GET /api/timeseries
 - GET /api/health
 - GET /api/telemetry
@@ -158,11 +208,9 @@ Search structured lifecycle events by level, message, request ID, or metadata. I
 
 Analytics endpoints accept from, to, and mcp where applicable. Times are ISO 8601.
 
-## Limitation
+## Historical payload limitation
 
-Safe tunnel telemetry identifies tools/call but does not expose individual MCP tool names such as browser_click or terminal_send. Getting tool names without MCP code changes requires observing request payload metadata in a proxy or another source. MCP Observatory intentionally avoids capturing payloads by default.
-
-The dashboard therefore provides detailed per-request timing and operational telemetry without storing MCP arguments or responses.
+Input/output payloads can only be displayed for tool calls observed after capture routing is enabled. Historical requests retain their timing and telemetry but cannot have their old tool arguments/results reconstructed.
 
 ## License
 

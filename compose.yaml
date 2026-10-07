@@ -9,6 +9,9 @@ services:
       MCP_OBS_POLL_SECONDS: "${MCP_OBS_POLL_SECONDS:-1.0}"
       MCP_OBS_DEBUG_LOGS: "${MCP_OBS_DEBUG_LOGS:-true}"
       MCP_OBS_TUNNELS_JSON: "${MCP_OBS_TUNNELS_JSON:-}"
+      MCP_OBS_CAPTURE_DIR: "${MCP_OBS_CAPTURE_DIR:-/data/captures}"
+      MCP_OBS_MAX_CAPTURE_BYTES: "${MCP_OBS_MAX_CAPTURE_BYTES:-5242880}"
+      MCP_OBS_HTTP_CAPTURE_JSON: "${MCP_OBS_HTTP_CAPTURE_JSON:-}"
     volumes:
       - ./data:/data
     healthcheck:

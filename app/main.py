@@ -20,6 +20,8 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
+from .capture import CaptureProxyManager, HTTP_CAPTURE, ensure_schema, ingest_stdio_files, link_captures
+
 DB_PATH = Path(os.getenv("MCP_OBS_DB", "/data/observability.db"))
 POLL_SECONDS = float(os.getenv("MCP_OBS_POLL_SECONDS", "0.5"))
 ENABLE_DEBUG = os.getenv("MCP_OBS_DEBUG_LOGS", "true").lower() == "true"
@@ -223,6 +225,8 @@ def open_db() -> sqlite3.Connection:
 
 
 DB = open_db()
+ensure_schema(DB)
+capture_proxy = CaptureProxyManager(DB)
 
 
 class Collector:
@@ -312,6 +316,10 @@ class Collector:
                     ts = parse_dt(ev.get("time")) or now_iso()
                     message = str(ev.get("message") or "")
                     request_id = str(attrs.get("request_id") or "")
+                    # Raw HTTP debug events can contain credentials and must never be persisted.
+                    if message.lower().startswith("raw http"):
+                        continue
+                    safe_attrs = {k: v for k, v in attrs.items() if k != "dump"}
                     try:
                         cur = DB.execute(
                             """INSERT OR IGNORE INTO events
@@ -321,7 +329,7 @@ class Collector:
                                 slug, client_id, seq, ts, ev.get("level"), message, request_id,
                                 attrs.get("cmd_request_id"), attrs.get("session_id"), attrs.get("rpc_method"),
                                 attrs.get("status_code"), None if attrs.get("has_error") is None else int(bool(attrs.get("has_error"))),
-                                json.dumps(attrs, separators=(",", ":")),
+                                json.dumps(safe_attrs, separators=(",", ":")),
                             ),
                         )
                         inserted = cur.rowcount > 0
@@ -454,6 +462,8 @@ class Collector:
         await asyncio.sleep(0.3)
         while True:
             await asyncio.gather(*(self.collect_one(k, v) for k, v in TUNNELS.items()))
+            ingest_stdio_files(DB)
+            link_captures(DB)
             await asyncio.sleep(POLL_SECONDS)
 
 
@@ -462,6 +472,7 @@ collector = Collector()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await capture_proxy.start()
     task = asyncio.create_task(collector.loop())
     yield
     task.cancel()
@@ -470,6 +481,7 @@ async def lifespan(app: FastAPI):
     except BaseException:
         pass
     await collector.close()
+    await capture_proxy.close()
     DB.close()
 
 
@@ -506,7 +518,7 @@ async def own_metrics():
 
 @app.get("/api/config")
 async def config():
-    return {"poll_seconds": POLL_SECONDS, "debug_logs": ENABLE_DEBUG, "tunnels": TUNNELS}
+    return {"poll_seconds": POLL_SECONDS, "debug_logs": ENABLE_DEBUG, "tunnels": TUNNELS, "http_capture": HTTP_CAPTURE}
 
 
 @app.get("/api/summary")
@@ -555,8 +567,30 @@ async def requests_api(
         "reply_delay": "reply_to_delivery_ms DESC NULLS LAST",
     }
     order = orders.get(sort, orders["newest"])
-    rows = DB.execute(f"SELECT * FROM requests WHERE {where} ORDER BY {order} LIMIT ?", [*args, limit]).fetchall()
+    public_cols = """
+      request_key,mcp,request_id,client_instance_id,cmd_request_id,session_id,rpc_method,
+      input_at,mcp_reply_at,delivered_at,duration_ms,reply_to_delivery_ms,status_code,has_error,
+      timing_confidence,observed_at,tool_name,capture_source,payload_captured_at,
+      CASE WHEN input_json IS NOT NULL AND output_json IS NOT NULL THEN 1 ELSE 0 END AS payload_available
+    """
+    rows = DB.execute(f"SELECT {public_cols} FROM requests WHERE {where} ORDER BY {order} LIMIT ?", [*args, limit]).fetchall()
     return {"rows": [dict(r) for r in rows]}
+
+
+@app.get("/api/request/{mcp}/{request_id}")
+async def request_detail(mcp: str, request_id: str):
+    row = DB.execute("SELECT * FROM requests WHERE mcp=? AND request_id=? LIMIT 1", (mcp, request_id)).fetchone()
+    if row is None:
+        raise HTTPException(404, "request not found")
+    out = dict(row)
+    for field in ("input_json", "output_json"):
+        raw = out.get(field)
+        if raw:
+            try:
+                out[field] = json.loads(raw)
+            except Exception:
+                out[field] = raw
+    return out
 
 
 @app.get("/api/timeseries")
@@ -623,7 +657,8 @@ async def health_api():
 @app.get("/api/telemetry")
 async def telemetry(
     from_: str | None = Query(None, alias="from"), to: str | None = None, mcp: str | None = "all",
-    level: str | None = "all", q: str | None = None, limit: int = Query(500, ge=1, le=5000)
+    level: str | None = "all", q: str | None = None, order: str = "newest",
+    limit: int = Query(500, ge=1, le=5000)
 ):
     cond, args = ["1=1"], []
     f, t = parse_dt(from_), parse_dt(to)
@@ -634,8 +669,9 @@ async def telemetry(
     if q:
         cond.append("(message LIKE ? OR attrs_json LIKE ? OR request_id LIKE ?)")
         x = f"%{q}%"; args.extend([x, x, x])
+    direction = "ASC" if order == "oldest" else "DESC"
     rows = DB.execute(
-        f"SELECT * FROM events WHERE {' AND '.join(cond)} ORDER BY ts DESC LIMIT ?",
+        f"SELECT * FROM events WHERE {' AND '.join(cond)} ORDER BY ts {direction} LIMIT ?",
         [*args, limit]
     ).fetchall()
     return {"rows": [dict(r) for r in rows]}
