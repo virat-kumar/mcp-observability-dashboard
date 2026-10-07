@@ -1,0 +1,22 @@
+[Unit]
+Description=MCP Observatory Dashboard
+Documentation=https://github.com/virat-kumar/mcp-observability-dashboard
+Wants=network-online.target tailscaled.service
+After=network-online.target docker.service tailscaled.service
+Requires=docker.service
+Before=openai-tunnel-client.service openai-tunnel-browser.service openai-tunnel-computer-use-linux.service openai-tunnel-excel-mcp.service openai-tunnel-personal-mcp-server.service openai-tunnel-background-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=virat
+Group=virat
+WorkingDirectory=/home/virat/Projects/mcp-observability-dashboard
+ExecStart=/home/virat/Projects/mcp-observability-dashboard/scripts/systemd-start.sh
+ExecReload=/home/virat/Projects/mcp-observability-dashboard/scripts/systemd-start.sh
+ExecStop=/usr/bin/docker compose stop dashboard
+TimeoutStartSec=90
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

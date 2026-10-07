@@ -112,6 +112,32 @@ Run the smoke test:
 ./scripts/smoke.sh http://127.0.0.1:9111
 ~~~
 
+## Start automatically at boot with systemd
+
+This repository includes `deploy/systemd/mcp-observability-dashboard.service` plus
+`scripts/systemd-start.sh`.
+
+On the configured Ubuntu host:
+
+~~~
+sudo install -m 0644 deploy/systemd/mcp-observability-dashboard.service /etc/systemd/system/mcp-observability-dashboard.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now mcp-observability-dashboard.service
+~~~
+
+Verify:
+
+~~~
+systemctl is-enabled mcp-observability-dashboard.service
+systemctl is-active mcp-observability-dashboard.service
+systemctl status mcp-observability-dashboard.service
+~~~
+
+The boot helper starts the Docker Compose service, waits for `/healthz`, and
+re-applies the Tailscale HTTPS Serve route on port `8470`. The unit is ordered
+before the OpenAI tunnel services that depend on the Observatory capture
+listeners.
+
 ## Tailscale HTTPS
 
 If Tailscale is installed, publish the dashboard to your tailnet without exposing it to the public Internet:
