@@ -1,0 +1,19 @@
+services:
+  dashboard:
+    build: .
+    container_name: mcp-observability-dashboard
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      MCP_OBS_DB: /data/observability.db
+      MCP_OBS_POLL_SECONDS: "${MCP_OBS_POLL_SECONDS:-1.0}"
+      MCP_OBS_DEBUG_LOGS: "${MCP_OBS_DEBUG_LOGS:-true}"
+      MCP_OBS_TUNNELS_JSON: "${MCP_OBS_TUNNELS_JSON:-}"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9111/healthz', timeout=2).read()"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s

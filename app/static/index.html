@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP Observatory</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#08111f;--panel:#0e1b2d;--border:#213653;--text:#eaf2ff;--muted:#91a4bd;--accent:#6ea8ff;--ok:#4ed08a;--warn:#f6c85f;--bad:#ff6b7a;--cyan:#60d5e8}
+*{box-sizing:border-box}body{margin:0;background:#08111f;color:var(--text);font-family:Inter,system-ui,sans-serif}header{position:sticky;top:0;z-index:5;background:#08111ff2;border-bottom:1px solid var(--border);backdrop-filter:blur(10px)}
+.wrap,main{max-width:1550px;margin:auto;padding:16px 20px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center}.brand{display:flex;gap:11px;align-items:center}.logo{width:38px;height:38px;border-radius:11px;background:radial-gradient(circle at 30% 30%,#93c5fd,#2563eb 65%,#1e3a8a)}
+h1{font-size:19px;margin:0}.sub,.muted{color:var(--muted)}.sub{font-size:11px;margin-top:2px}.controls,.nav,.toolbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+select,input,button{background:#0b1727;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 9px;font-size:12px}button{cursor:pointer}.primary,.preset.active{background:#173663;border-color:#3976c8}
+.nav{margin-top:13px}.nav button{border:none;border-bottom:2px solid transparent;background:transparent;color:var(--muted)}.nav button.active{color:white;border-bottom-color:var(--accent);background:#0e1b2d}
+.tab{display:none}.tab.active{display:block}.grid{display:grid;gap:12px}.kpis{grid-template-columns:repeat(7,minmax(120px,1fr))}.two{grid-template-columns:1.2fr .8fr}.health-grid{grid-template-columns:repeat(3,1fr)}
+.card{background:linear-gradient(180deg,#101f33,#0c1828);border:1px solid var(--border);border-radius:12px;padding:14px}.kpi .label{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}.kpi .value{font-size:24px;font-weight:700;margin-top:6px}.kpi .note{font-size:10px;color:var(--muted);margin-top:3px}
+.section{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.section h2{font-size:14px;margin:0}.section span{font-size:10px;color:var(--muted)}canvas{width:100%;height:250px}
+.table-wrap{overflow:auto;max-height:560px;border:1px solid var(--border);border-radius:9px}table{border-collapse:collapse;width:100%;font-size:11px}thead{position:sticky;top:0;background:#0b1727;z-index:2}th,td{text-align:left;padding:9px 10px;border-bottom:1px solid #213653aa;white-space:nowrap}th{font-size:10px;text-transform:uppercase;color:#a2b4ca}tr:hover td{background:#355d8c1c}
+.mono{font-family:ui-monospace,monospace}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.badge{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:999px;padding:3px 7px;font-size:10px}.dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:7px 12px;margin-top:12px}.kv div:nth-child(odd){color:var(--muted)}.kv div:nth-child(even){text-align:right}.grow{flex:1}.detail{white-space:normal;overflow-wrap:anywhere;max-width:620px}
+pre{margin:0;background:#07101c;border:1px solid var(--border);border-radius:9px;padding:12px;max-height:620px;overflow:auto;font-size:10px;line-height:1.5}.empty{padding:30px;text-align:center;color:var(--muted)}.footer{font-size:10px;color:var(--muted);margin-top:12px}
+@media(max-width:1100px){.kpis{grid-template-columns:repeat(3,1fr)}.two,.health-grid{grid-template-columns:1fr}}@media(max-width:650px){.kpis{grid-template-columns:repeat(2,1fr)}.top{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+<div class="top"><div class="brand"><div class="logo"></div><div><h1>MCP Observatory</h1><div class="sub">Analytics + health + telemetry in one dashboard</div></div></div>
+<div class="controls">
+<select id="mcpFilter"><option value="all">All MCPs</option></select>
+<button class="preset" data-min="15">15m</button><button class="preset" data-min="60">1h</button><button class="preset active" data-min="360">6h</button><button class="preset" data-min="1440">24h</button><button class="preset" data-min="10080">7d</button>
+<input id="fromInput" type="datetime-local"><input id="toInput" type="datetime-local"><button id="applyBtn" class="primary">Apply</button><button id="refreshBtn">Refresh</button><label class="badge"><input id="autoRefresh" type="checkbox" checked> live</label>
+</div></div>
+<div class="nav"><button class="active" data-tab="overview">Overview</button><button data-tab="requests">Requests</button><button data-tab="health">Health</button><button data-tab="telemetry">Telemetry</button></div>
+</div></header>
+<main>
+<section id="tab-overview" class="tab active">
+<div id="kpis" class="grid kpis"></div>
+<div class="grid two" style="margin-top:12px"><div class="card"><div class="section"><h2>Request volume & latency</h2><span id="bucketLabel"></span></div><canvas id="timeline"></canvas></div>
+<div class="card"><div class="section"><h2>Latency by MCP</h2><span>Average + P95</span></div><canvas id="mcpLatency"></canvas></div></div>
+<div class="card" style="margin-top:12px"><div class="section"><h2>Slowest requests</h2><span>Highest end-to-end latency</span></div><div id="slowTable" class="table-wrap"></div></div>
+</section>
+<section id="tab-requests" class="tab"><div class="card"><div class="section"><h2>Request lifecycle</h2><span>Input/enqueue → MCP reply → OpenAI delivery</span></div>
+<div class="toolbar"><select id="requestSort"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="slowest">Slowest first</option><option value="fastest">Fastest first</option><option value="reply_delay">Largest delivery overhead</option></select><label class="badge"><input id="errorsOnly" type="checkbox"> errors only</label><span class="grow"></span><span class="muted">Concurrent timing batches are labeled estimates.</span></div>
+<div id="requestTable" class="table-wrap"></div></div></section>
+<section id="tab-health" class="tab"><div class="section"><h2>Live health checks</h2><span id="healthUpdated"></span></div><div id="healthGrid" class="grid health-grid"></div><div class="footer">Direct health/readiness checks against existing tunnel clients. MCP server code is untouched.</div></section>
+<section id="tab-telemetry" class="tab"><div class="grid two">
+<div class="card"><div class="section"><h2>Lifecycle & system events</h2><span>Safe DEBUG metadata only</span></div><div class="toolbar"><select id="levelFilter"><option value="all">All levels</option><option value="debug">DEBUG</option><option value="info">INFO</option><option value="warn">WARN</option></select><input id="telemetrySearch" class="grow" placeholder="Search message, request ID or metadata"><button id="telemetrySearchBtn">Search</button></div><div id="telemetryTable" class="table-wrap"></div></div>
+<div class="card"><div class="section"><h2>Raw telemetry inspector</h2><span>Status + Prometheus</span></div><div class="toolbar"><select id="rawMcp"></select><button id="rawStatusBtn">Status JSON</button><button id="rawMetricsBtn">Prometheus metrics</button></div><pre id="rawOutput">Select an MCP and telemetry source.</pre></div>
+</div></section>
+<div id="statusLine" class="footer"></div>
+<script src="/static/app.js"></script>
+</main></body></html>
