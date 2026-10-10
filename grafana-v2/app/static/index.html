@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP Observatory</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<style>
+:root{--bg:#07111f;--panel:#0d1a2c;--panel2:#10223a;--border:#223a59;--text:#eaf2ff;--muted:#91a4bd;--accent:#67a5ff;--cyan:#62d4e7;--ok:#4ed08a;--warn:#f4c85d;--bad:#ff6b7a;--telemetry-scale:1}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#07101d,#081421 55%,#07111f);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
+header{position:sticky;top:0;z-index:20;background:rgba(7,17,31,.96);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+.wrap,main{max-width:1900px;margin:auto;padding:14px 18px}.top{display:flex;justify-content:space-between;gap:14px;align-items:center}.brand{display:flex;align-items:center;gap:12px}.logo{width:43px;height:43px;border-radius:12px;background:radial-gradient(circle at 30% 30%,#b8d7ff,#3d82ee 50%,#1e5dd4 80%);box-shadow:0 0 26px #3b82f655}
+h1{font-size:23px;line-height:1;margin:0}.sub{font-size:12px;color:var(--muted);margin-top:5px}.controls,.nav,.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+select,input,button{background:#0b1828;color:var(--text);border:1px solid var(--border);border-radius:9px;padding:9px 11px;font:inherit;font-size:12px}button{cursor:pointer}button:hover{border-color:#416691;background:#11243a}.primary,.preset.active{background:#193b6d;border-color:#4c88d8}
+input[type=range]{padding:0;width:130px}.nav{margin-top:11px}.nav button{background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);border-radius:7px 7px 0 0}.nav button.active{color:white;background:#10213a;border-bottom-color:var(--accent)}
+main{padding-top:18px;padding-bottom:60px}.tab{display:none}.tab.active{display:block}.grid{display:grid;gap:12px}.kpis{grid-template-columns:repeat(7,minmax(145px,1fr))}.two{grid-template-columns:minmax(0,1.25fr) minmax(0,.75fr)}.health-grid{grid-template-columns:repeat(3,minmax(280px,1fr))}
+.card{background:linear-gradient(180deg,#102138,#0c192a);border:1px solid var(--border);border-radius:13px;padding:15px;box-shadow:0 10px 30px #0003}.kpi .label{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}.kpi .value{font-size:29px;font-weight:750;margin-top:7px}.kpi .note{font-size:11px;color:var(--muted);margin-top:3px}
+.section{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.section h2{font-size:17px;margin:0}.section .right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.section small{color:var(--muted)}
+.muted{color:var(--muted)}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.badge{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:999px;padding:3px 7px;font-size:10px}.dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
+.range-status{font-size:10px;color:var(--muted);min-width:120px;text-align:right}
+canvas{display:block;width:100%;height:285px}.legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:10px;margin-top:7px}.legend span{display:flex;align-items:center;gap:6px}.sw{width:11px;height:8px;border-radius:2px;background:var(--accent)}.sw.cyan{background:var(--cyan)}.sw.bad{background:var(--bad)}
+.table-wrap{overflow:auto;max-height:590px;border:1px solid var(--border);border-radius:10px;background:#091524}.table-wrap table{border-collapse:collapse;width:100%;font-size:11px}thead{position:sticky;top:0;z-index:5;background:#0b1828}th,td{padding:10px 11px;border-bottom:1px solid #223a5980;text-align:left;white-space:nowrap}th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#9eb1c9}tbody tr{cursor:default}tbody tr.clickable{cursor:pointer}tbody tr.clickable:hover td{background:#31598520}.payload-pill{font-size:9px;border:1px solid #2c5b82;border-radius:999px;padding:2px 6px;color:#9fd8ff}.payload-pill.off{color:#70849d;border-color:#29405b}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:12px;font-size:11px}.kv div:nth-child(odd){color:var(--muted)}.kv div:nth-child(even){text-align:right}
+.telemetry-wrap{overflow:auto;max-height:650px;border:1px solid var(--border);border-radius:10px;background:#071321}.telemetry-wrap table{border-collapse:collapse;min-width:calc(1650px * var(--telemetry-scale));width:max-content;font-size:calc(11px * var(--telemetry-scale))}.telemetry-wrap th,.telemetry-wrap td{padding:calc(9px * var(--telemetry-scale)) calc(10px * var(--telemetry-scale));white-space:nowrap}.telemetry-wrap .meta-preview{display:block;max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.telemetry-wrap tbody tr{cursor:pointer}.telemetry-wrap tbody tr:hover td{background:#31598520}
+pre{margin:0;background:#06101c;border:1px solid var(--border);border-radius:9px;padding:12px;overflow:auto;max-height:650px;font-size:11px;line-height:1.5;white-space:pre}.grow{flex:1}.empty{padding:36px;text-align:center;color:var(--muted)}.footer{font-size:10px;color:var(--muted);margin-top:12px}.info{cursor:help;border-bottom:1px dotted #7d94b1}
+.modal{position:fixed;inset:0;z-index:100;background:#0009;display:none;align-items:center;justify-content:center;padding:22px}.modal.open{display:flex}.modal-card{width:min(1180px,96vw);max-height:92vh;overflow:auto;background:#0b192b;border:1px solid #315278;border-radius:14px;box-shadow:0 24px 70px #000a}.modal-head{position:sticky;top:0;z-index:3;display:flex;justify-content:space-between;align-items:center;padding:15px 17px;background:#0b192bf7;border-bottom:1px solid var(--border)}.modal-head h3{margin:0;font-size:17px}.modal-body{padding:16px}.detail-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.detail-box{background:#0a1625;border:1px solid var(--border);border-radius:9px;padding:10px}.detail-box .k{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.detail-box .v{font-size:11px;margin-top:5px;overflow-wrap:anywhere}.payload-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.payload-panel h4{margin:0 0 7px;font-size:13px}.payload-panel pre{max-height:470px;white-space:pre-wrap;word-break:break-word}.privacy-note{margin-top:10px;font-size:10px;color:var(--warn)}
+@media(max-width:1200px){.kpis{grid-template-columns:repeat(4,1fr)}.two,.health-grid{grid-template-columns:1fr}.payload-grid{grid-template-columns:1fr}}@media(max-width:720px){.kpis{grid-template-columns:repeat(2,1fr)}.top{align-items:flex-start;flex-direction:column}.detail-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+<div class="top">
+  <div class="brand"><div class="logo"></div><div><h1>MCP Observatory</h1><div class="sub">Analytics + health + telemetry in one dashboard</div></div></div>
+  <div class="controls">
+    <select id="mcpFilter"><option value="all">All MCPs</option></select>
+    <button class="preset" data-min="15">15m</button><button class="preset" data-min="60">1h</button><button class="preset active" data-min="360">6h</button><button class="preset" data-min="1440">24h</button><button class="preset" data-min="10080">7d</button>
+    <input id="fromInput" type="datetime-local" title="From"><input id="toInput" type="datetime-local" title="To">
+    <button id="applyBtn" class="primary">Apply</button><button id="refreshBtn">Refresh</button>
+    <label class="badge"><input id="autoRefresh" type="checkbox" checked> live</label>
+    <span id="rangeStatus" class="range-status"></span>
+  </div>
+</div>
+<div class="nav"><button class="active" data-tab="overview">Overview</button><button data-tab="requests">Requests</button><button data-tab="health">Health</button><button data-tab="telemetry">Telemetry</button><button data-tab="grafana">Grafana</button></div>
+</div></header>
+
+<main>
+<section id="tab-grafana" class="tab"><div class="card"><div class="section"><h2>Grafana Metrics Explorer</h2><small>Dedicated Prometheus datasource · historical time-series, percentiles, queue usage, status and CPU</small></div><iframe title="Grafana observability dashboard" id="grafanaFrame" src="/grafana/d/mcp-observatory-v2/mcp-observatory?orgId=1&kiosk" style="width:100%;min-height:78vh;border:0;background:#101923"></iframe></div></section>
+<section id="tab-overview" class="tab active">
+  <div id="kpis" class="grid kpis"></div>
+  <div class="grid two" style="margin-top:12px">
+    <div class="card"><div class="section"><h2>Request volume & latency</h2><small id="bucketLabel"></small></div><canvas id="timeline"></canvas><div class="legend"><span><i class="sw"></i>Requests</span><span><i class="sw cyan"></i>Average latency</span><span><i class="sw bad"></i>Errors</span></div></div>
+    <div class="card"><div class="section"><h2>Latency by MCP</h2><small>Average + P95 · all configured MCPs</small></div><canvas id="mcpLatency"></canvas><div class="legend"><span><i class="sw"></i>Average latency</span><span><i class="sw cyan"></i>P95 latency</span><span><i class="sw" style="background:#20344e"></i>No calls in selected range</span><span class="muted">Click any MCP row to open its Requests</span></div></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="section"><h2>Requests</h2><div class="right"><small>Default: newest</small><select id="overviewSort"><option value="newest">Newest</option><option value="slowest">Slowest</option><option value="fastest">Fastest</option><option value="oldest">Oldest</option></select></div></div>
+    <div id="overviewTable" class="table-wrap"></div>
+  </div>
+</section>
+
+<section id="tab-requests" class="tab">
+  <div class="card">
+    <div class="section"><h2>Request lifecycle</h2><small>Click any row for input + output</small></div>
+    <div class="toolbar" style="margin-bottom:11px">
+      <select id="requestSort"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="slowest">Slowest first</option><option value="fastest">Fastest first</option><option value="reply_delay">Largest reply → delivery overhead</option></select>
+      <label class="badge"><input id="errorsOnly" type="checkbox"> errors only</label>
+      <span class="muted"><span class="info" title="End-to-end (E2E) is the elapsed time from the tunnel request/enqueue point until the response is delivered back to OpenAI.">E2E = End-to-end</span></span>
+    </div>
+    <div id="requestTable" class="table-wrap"></div>
+  </div>
+</section>
+
+<section id="tab-health" class="tab">
+  <div class="section"><h2>Live health checks</h2><small id="healthUpdated"></small></div>
+  <div id="healthGrid" class="grid health-grid"></div>
+  <div class="footer">Health and readiness are read from each existing OpenAI tunnel. Payload capture is separate and does not use raw HTTP debug logs.</div>
+</section>
+
+<section id="tab-telemetry" class="tab">
+  <div class="grid two">
+    <div class="card">
+      <div class="section"><h2>Lifecycle & system events</h2><small>Newest first by default · click a row for full metadata</small></div>
+      <div class="toolbar" style="margin-bottom:10px">
+        <select id="levelFilter"><option value="all">All levels</option><option value="debug">DEBUG</option><option value="info">INFO</option><option value="warn">WARN</option></select>
+        <select id="telemetryOrder"><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select>
+        <input id="telemetrySearch" class="grow" placeholder="Search message, request ID or metadata"><button id="telemetrySearchBtn">Search</button>
+        <label class="badge"><input id="followNewest" type="checkbox" checked> follow newest</label>
+        <label class="badge">Scale <input id="telemetryScale" type="range" min="80" max="140" value="100" step="10"><span id="telemetryScaleLabel">100%</span></label>
+      </div>
+      <div id="telemetryTable" class="telemetry-wrap"></div>
+    </div>
+    <div class="card">
+      <div class="section"><h2>Raw telemetry inspector</h2><small id="rawSourceLabel">Status</small></div>
+      <div class="toolbar" style="margin-bottom:10px"><select id="rawMcp"></select><button id="rawStatusBtn">Status JSON</button><button id="rawMetricsBtn">Prometheus metrics</button><label class="badge"><input id="rawLive" type="checkbox" checked> auto-update</label></div>
+      <pre id="rawOutput">Loading…</pre>
+    </div>
+  </div>
+</section>
+<div id="statusLine" class="footer"></div>
+</main>
+
+<div id="requestModal" class="modal" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <div class="modal-head"><h3 id="requestModalTitle">Request details</h3><button data-close-modal="requestModal">Close</button></div>
+    <div id="requestModalBody" class="modal-body"></div>
+  </div>
+</div>
+<div id="telemetryModal" class="modal" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <div class="modal-head"><h3>Telemetry event</h3><button data-close-modal="telemetryModal">Close</button></div>
+    <div id="telemetryModalBody" class="modal-body"></div>
+  </div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

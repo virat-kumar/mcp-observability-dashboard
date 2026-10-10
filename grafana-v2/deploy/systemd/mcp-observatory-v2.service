@@ -1,0 +1,22 @@
+[Unit]
+Description=MCP Observatory v2 - Grafana, Prometheus, inspector and independent capture gateway
+Wants=network-online.target tailscaled.service
+After=network-online.target docker.service tailscaled.service
+Requires=docker.service
+Before=openai-tunnel-client.service openai-tunnel-browser.service openai-tunnel-computer-use-linux.service openai-tunnel-excel-mcp.service openai-tunnel-personal-mcp-server.service openai-tunnel-background-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=virat
+Group=virat
+WorkingDirectory=/home/virat/Projects/mcp-observability-dashboard/grafana-v2
+ExecStart=/usr/bin/docker compose --profile capture up -d
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 60); do /usr/bin/curl -fsS --max-time 2 http://127.0.0.1:9120/healthz >/dev/null 2>&1 && /usr/bin/curl -fsS --max-time 2 http://127.0.0.1:18900/api/sessions >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+ExecStartPost=/usr/bin/tailscale serve --bg --yes --https=8470 http://127.0.0.1:9120
+ExecStop=/usr/bin/docker compose --profile capture stop
+TimeoutStartSec=180
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

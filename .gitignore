@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .venv/
 .env
+# Staging observability databases and docker volumes
+grafana-v2/data/

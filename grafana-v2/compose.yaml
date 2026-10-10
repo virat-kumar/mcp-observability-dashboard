@@ -1,0 +1,86 @@
+name: mcp-observatory-v2
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: mcp-observatory-v2-prometheus
+    network_mode: host
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.listen-address=127.0.0.1:9191
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./data/prometheus:/prometheus
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana:11.6.0
+    container_name: mcp-observatory-v2-grafana
+    network_mode: host
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
+    environment:
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: 3120
+      GF_SERVER_ROOT_URL: /grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+      GF_SECURITY_ALLOW_EMBEDDING: 'true'
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: 'true'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_PLUGINS_DISABLE_PLUGINS: grafana-lokiexplore-app
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: 'false'
+      GF_LIVE_MAX_CONNECTIONS: '0'
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+  gateway:
+    profiles: [capture]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp-observatory-v2-gateway
+    network_mode: host
+    restart: unless-stopped
+    command: [python, -m, app.gateway]
+    environment:
+      MCP_OBS_DB: /data/observability.db
+      MCP_OBS_HTTP_CAPTURE_JSON: '${V2_GATEWAY_LISTEN_JSON:-{"terminal":{"listen_port":28900,"target":"http://127.0.0.1:8900"},"excel":{"listen_port":28017,"target":"http://127.0.0.1:8017"},"personal":{"listen_port":28765,"target":"http://127.0.0.1:8765"},"background":{"listen_port":27874,"target":"http://127.0.0.1:17873"}}}'
+    volumes:
+      - ./data/inspector:/data
+  inspector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp-observatory-v2-inspector
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      MCP_OBS_DB: /data/observability.db
+      MCP_OBS_POLL_SECONDS: '15'
+      MCP_OBS_DEBUG_LOGS: 'true'
+      MCP_OBS_CAPTURE_DIR: /data/captures
+      MCP_OBS_HTTP_CAPTURE_JSON: '${V2_HTTP_CAPTURE_JSON:-{}}'
+      MCP_OBS_PORT: '9120'
+      MCP_OBS_GRAFANA: http://127.0.0.1:3120
+      MCP_OBS_METRICS_BACKEND: http://127.0.0.1:9191
+    volumes:
+      - ./data/inspector:/data
+      - ../data/captures:/data/captures:ro
+    depends_on:
+      - prometheus
+      - grafana
+    healthcheck:
+      test: ['CMD','python','-c','import urllib.request; urllib.request.urlopen("http://127.0.0.1:9120/healthz",timeout=5).read()']
+      interval: 20s
+      timeout: 6s
+      retries: 3
+    stop_grace_period: 20s

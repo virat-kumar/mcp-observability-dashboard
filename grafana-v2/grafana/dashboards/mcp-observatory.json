@@ -1,0 +1,505 @@
+{
+  "uid": "mcp-observatory-v2",
+  "title": "MCP Observatory - Grafana",
+  "description": "Independent Prometheus analytics for MCP tunnels. Request payload drilldown and telemetry are available in the companion MCP Observatory UI.",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "timezone": "browser",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "tags": [
+    "MCP",
+    "observability",
+    "tunnels"
+  ],
+  "editable": false,
+  "panels": [
+    {
+      "id": 1,
+      "title": "MCP tunnel health",
+      "description": "1=healthy scrape; 0=unavailable",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"mcp-tunnels\",mcp=~\"$mcp\"}",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Request volume (5m)",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by(mcp)(increase(command_end_to_end_latency_milliseconds_count{latency_type=\"enqueue_to_response\",request_method=\"tools/call\",mcp=~\"$mcp\"}[5m]))",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Average end-to-end latency",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by(mcp)(rate(command_end_to_end_latency_milliseconds_sum{latency_type=\"enqueue_to_response\",request_method=\"tools/call\",mcp=~\"$mcp\"}[5m])) / clamp_min(sum by(mcp)(rate(command_end_to_end_latency_milliseconds_count{latency_type=\"enqueue_to_response\",request_method=\"tools/call\",mcp=~\"$mcp\"}[5m])), 1e-9)",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "P50 end-to-end latency",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by(le,mcp)(rate(command_end_to_end_latency_milliseconds_bucket{latency_type=\"enqueue_to_response\",request_method=\"tools/call\",mcp=~\"$mcp\"}[5m])))",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "P95 end-to-end latency",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by(le,mcp)(rate(command_end_to_end_latency_milliseconds_bucket{latency_type=\"enqueue_to_response\",request_method=\"tools/call\",mcp=~\"$mcp\"}[5m])))",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "P99 end-to-end latency",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by(le,mcp)(rate(command_end_to_end_latency_milliseconds_bucket{latency_type=\"enqueue_to_response\",request_method=\"tools/call\",mcp=~\"$mcp\"}[5m])))",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Queued commands",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by(mcp)(commands_queue_length{job=\"mcp-tunnels\",mcp=~\"$mcp\"})",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Worker occupancy",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by(mcp)(dispatcher_worker_pool_occupancy{job=\"mcp-tunnels\",mcp=~\"$mcp\"})",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Tunnel CPU usage (%)",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "100 * sum by(mcp)(rate(process_cpu_seconds_total{job=\"mcp-tunnels\",mcp=~\"$mcp\"}[5m]))",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Tunnel memory usage",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by(mcp)(process_resident_memory_bytes{job=\"mcp-tunnels\",mcp=~\"$mcp\"})",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Poll error rate",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by(mcp)(rate(commands_poll_errors_total{job=\"mcp-tunnels\",mcp=~\"$mcp\"}[5m]))",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Request latency histogram count",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "mcp-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by(mcp)(command_end_to_end_latency_milliseconds_count{latency_type=\"enqueue_to_response\",request_method=\"tools/call\",mcp=~\"$mcp\"})",
+          "legendFormat": "{{mcp}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "mcp",
+        "label": "MCP",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "mcp-prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=\"mcp-tunnels\"}, mcp)",
+          "refId": "A"
+        },
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 1,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  }
+}

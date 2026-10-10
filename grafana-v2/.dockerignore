@@ -1,0 +1,13 @@
+# Never transmit private capture/database data to Docker build contexts.
+data/
+.env
+.env.*
+**/__pycache__/
+**/*.pyc
+.git/
+tests/
+scripts/
+grafana/
+prometheus/
+deploy/
+README.md
