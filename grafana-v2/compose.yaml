@@ -9,6 +9,7 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=256MB
       - --web.listen-address=127.0.0.1:9191
       - --web.enable-lifecycle
     volumes:
@@ -34,6 +35,7 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: 'false'
       GF_LIVE_MAX_CONNECTIONS: '0'
+      GF_LOG_MODE: console
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
     volumes:
       - ./data/grafana:/var/lib/grafana
@@ -70,14 +72,12 @@ services:
       MCP_OBS_CAPTURE_DIR: /data/captures
       MCP_OBS_HTTP_CAPTURE_JSON: '${V2_HTTP_CAPTURE_JSON:-{}}'
       MCP_OBS_GATEWAY_CAPTURE_JSON: '${V2_GATEWAY_LISTEN_JSON:-{"terminal":{"listen_port":28900,"target":"http://127.0.0.1:8900"},"excel":{"listen_port":28017,"target":"http://127.0.0.1:8017"},"personal":{"listen_port":28765,"target":"http://127.0.0.1:8765"},"background":{"listen_port":27874,"target":"http://127.0.0.1:17873"}}}'
-      MCP_OBS_LEGACY_DB: /legacy/observability.db
       MCP_OBS_PORT: '9120'
       MCP_OBS_GRAFANA: http://127.0.0.1:3120
       MCP_OBS_METRICS_BACKEND: http://127.0.0.1:9191
     volumes:
       - ./data/inspector:/data
       - ../data/captures:/data/captures:ro
-      - ../data/observability.db:/legacy/observability.db:ro
     depends_on:
       - prometheus
       - grafana

@@ -1,3 +1,18 @@
+# MCP Observatory (Grafana-backed production v2)
+
+**The supported production deployment is in [`grafana-v2/`](grafana-v2/README.md).**
+The original four dashboard tabs are preserved, with a fifth Grafana tab.
+The active deployment is tailnet-only at
+`https://desktop-ubuntu.tailac2e85.ts.net:8470/`.
+Use `mcp-observatory-v2.service` for boot and
+`mcp-observatory-v2-storage.timer` for the 3 GiB **best-effort active-data
+storage budget**. No legacy v1 database or v1 container is retained.
+The older quick-start and v1 Compose/systemd examples below are **retired**:
+**do not run them in production**, as they may conflict with live MCP capture
+listener ports. They are included for historical source context only.
+
+---
+
 # MCP Observatory
 
 A unified analytics, health, request-inspection, and telemetry dashboard for MCP servers connected through the OpenAI tunnel client.

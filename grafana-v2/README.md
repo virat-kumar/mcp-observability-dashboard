@@ -1,54 +1,76 @@
-# MCP Observatory v2 - Grafana-backed, identical inspector UI
+# MCP Observatory v2 — Production Grafana + low-CPU inspector
 
-This is a standalone alternative to MCP Observatory v1 in the `feature/grafana-observatory-parity` branch.
+The **production** dashboard is available through the original tailnet-only address:
+`https://desktop-ubuntu.tailac2e85.ts.net:8470/`.
 
-- Existing four-tab UI is preserved from v1, including charts, filters, request detail, tool input/output, historical events, health and raw metrics. The fifth tab embeds 12 Grafana metric charts.
-- Private Grafana and Prometheus run independently of FarmToGo. They scrape the existing six tunnel `/metrics` endpoints every 15 seconds; no MCP server code or systemd units change.
-- A separate lightweight `gateway` container runs only MCP HTTP forwarding and redacted request capture. This gateway remains available even when Grafana/inspector is down.
-- A new inspector runs the original compatibility API and request-correlation logic, with 15-second polling and an hourly retention cleanup on an indexed timestamp rather than a full table scan every second.
-- Original database/history is left untouched; migrated request/event/capture history is in `grafana-v2/data/inspector/observability.db` (ignored from Git). Legacy 1.4 GB DB remains on disk for rollback/audit, including historical raw snapshots.
+The original four tabs are preserved: Overview, Requests, Health, and Telemetry.
+A fifth tab embeds twelve native Grafana/Prometheus panels. The legacy
+frontend `app.js` is byte-for-byte unchanged; inspector API compatibility and
+full Playwright regression tests are included in this folder.
 
-## Ports
+## Independent services, unchanged MCP tunnels
 
-| Component | Staging/production local port | Exposure |
+| Component | Local port(s) | Description |
 | --- | --- | --- |
-| Inspector + original UI + `/grafana/` | `127.0.0.1:9120` | Tailnet HTTPS 8470 after cutover |
-| Grafana (native) | `127.0.0.1:3120` | Only via inspector reverse proxy |
-| Prometheus | `127.0.0.1:9191` | Loopback only |
-| Gateway | staging 28900/28017/28765/27874; production 18900/18017/18765/17874 | Local MCP transport only |
+| Inspector | 127.0.0.1:9120 | Original UI/APIs, 15-second collector, Grafana reverse proxy |
+| Grafana | 127.0.0.1:3120 | Twelve MCP metric charts |
+| Prometheus | 127.0.0.1:9191 | Scrapes six existing MCP tunnel metric endpoints |
+| Capture gateway | 18900, 18017, 18765, 17874 | Original HTTP listener ports for four MCP tunnels |
+| HTTPS | Tailnet-only 8470 | Forwards to inspector, with Grafana at `/grafana/` |
 
-## Development and tests
+No MCP server or MCP tunnel service source/config is modified. The capture gateway
+is an independent process; the dashboard can be restarted without restarting the
+MCP forwarding path. FarmToGo's Grafana, databases, and containers are untouched.
 
-- `docker compose up -d --build` starts new Prometheus, Grafana and inspector without binding the live MCP ports.
-- `docker compose --profile capture up -d gateway` starts the gateway on staging ports (unless `.env` config says otherwise).
-- `python3 tests/parity.py` checks frozen historical API equality while v1 is running.
-- `node tests/ui_parity.cjs` runs actual headless Chrome UI interaction tests.
-- `node tests/grafana_diag.cjs` verifies Grafana panels render data.
-- `bash tests/original-smoke.sh http://127.0.0.1:9120` runs the inherited production smoke test.
-- `python3 scripts/sync_history.py` imports newer legacy requests, telemetry and captures before cutover, preserving existing v2 values.
-- `bash scripts/cutover.sh` performs a guarded reversible production cutover to HTTPS 8470, disables the old boot service and container restart, installs the v2 systemd unit and verifies every MCP tunnel PID remains unchanged. It reverts to the old dashboard if any mandatory check fails.
+## Disk budget: 3 GiB active data, best-effort management
 
-## Rollback
+The dedicated cleanup timer `mcp-observatory-v2-storage.timer` runs every five
+minutes, starting two minutes after boot. It counts **both** `grafana-v2/data/`
+and the active `data/captures/` raw capture log directory, then:
 
-Keep the old code, service file and database; do not delete them. To roll back manually, stop `mcp-observatory-v2.service` and its capture gateway, set `docker update --restart=unless-stopped mcp-observability-dashboard`, enable/start `mcp-observability-dashboard.service`, and point Tailscale HTTPS 8470 to `http://127.0.0.1:9111` again. Never restart the MCP servers or tunnel processes as part of this rollback.
+- Removes snapshots older than **48 hours**, telemetry events and captures older
+  than **14 days**, and requests older than **30 days**.
+- Rotates a raw Playwright/Computer-Use `.jsonl` capture file once it exceeds
+  **32 MiB**, but **only after the inspector confirms all bytes were ingested**.
+  It truncates in place to preserve writer file descriptors and MCP connectivity.
+- Starts size-pressure cleanup at **2.2 GiB** instead of waiting until 3 GiB;
+  retains a minimum set of recent records and reports inability to meet budget.
+- Prometheus additionally caps its TSDB via `--storage.tsdb.retention.size=256MB`
+  and time retention at seven days. Grafana uses console-only logs.
 
-## Safety
+**Important:** This is a preventive **operating budget, not a filesystem hard
+quota**. Because the root ext4 volume lacks a dedicated project quota, growth
+can temporarily exceed 3 GiB during unusually large bursts or database WAL
+activity. Retention reclaims logical SQLite pages for reuse. A manual database
+compaction may be needed to physically shrink an already-overgrown file.
+Docker image layers and Docker's own logs outside the data folders are not part
+of this 3 GiB data budget. The controller exits nonzero and reports
+`OVER_BUDGET` when it cannot meet the limit. Never fill or unmount storage used
+by the capture gateway merely to force a hard quota.
 
-This stack persists user tool input/output, which can contain sensitive material after best-effort redaction. Keep tailnet access controlled and never publish the SQLite database, captures or Grafana writable configuration to Git. Grafana anonymous access is only exposed behind the existing tailnet-only URL. Do not modify or restart any MCP server to install or operate this stack.
+Monitor: `systemctl list-timers mcp-observatory-v2-storage.timer` and
+`journalctl -u mcp-observatory-v2-storage.service --no-pager -n 20`.
+Manual check: `python3 grafana-v2/scripts/enforce_storage_budget.py`.
 
-## Live deployment (October 9, 2026)
+## No legacy archive
 
-The production cutover succeeded using the rollback-safe `scripts/cutover.sh`.
-The old `mcp-observability-dashboard.service` is disabled and inactive, its Docker container restart policy is `no`, and the new `mcp-observatory-v2.service` is enabled and active. Tailnet-only HTTPS port 8470 now fronts the new UI, Grafana at `/grafana/`, and the API. The staging 8471 Serve route was removed. All monitored MCP/tunnel process PIDs were verified unchanged. No reboot was performed, because rebooting would restart MCP servers against the user's restrictions.
+The obsolete v1 SQLite database and v1 Docker container have been removed by
+request, and the legacy DB is no longer mounted in the inspector. Old one-second
+snapshots from v1 are **not retained**. The migrated v2 request and telemetry
+history and new health snapshots remain available, subject to retention.
 
-A successful live MCP `tools/call` request was captured by the replacement standalone gateway and linked to its request input/output in the new database. The legacy 1.4 GB database was retained without deletion. All 17 FarmToGo containers remained running and were not modified.
+**Keep** `data/captures/` at its original absolute path: existing MCP wrappers
+continue to append to those files. It is not a v1 database or an archive.
 
+## Testing
 
-## Expanded parity and archival testing
+- `node grafana-v2/tests/full_ui_regression.cjs` — headless Chrome Playwright
+  regression suite for all original UI controls, request input/output, time
+  filtering, telemetry, health, raw metrics, auto-refresh, and Grafana.
+- `python3 grafana-v2/tests/storage_budget_test.py` — isolated retention and
+  capture-rotation tests; never touch production data.
+- `bash grafana-v2/tests/original-smoke.sh https://desktop-ubuntu.tailac2e85.ts.net:8470` — full live smoke check.
 
-- `node tests/full_ui_regression.cjs` runs full end-to-end Playwright/Chrome browser checks of every original dashboard interaction: preset/custom time windows, refresh controls, MCP filtering, overview and request sorting, error filter, latency chart navigation, request tool input/output and lifecycle modal, health cards, telemetry ordering/search/levels/modal/scroll/scale/follow-newest, raw status and Prometheus inspector, keyboard/overlay modal dismissal, actual periodic refresh, and Grafana charts and datasource queries. Use `BASE_URL=https://...` for HTTPS validation. The suite catches JavaScript page errors and HTTP 5xx responses.
-- `python3 tests/historical_snapshot_parity.py` verifies exact historical `/api/snapshots` equality against the legacy SQLite database for all six configured MCPs, plus gateway-config and newest/oldest merged filters.
-- `app/static/app.js` is byte-for-byte identical to the original UI's JavaScript, and the original HTML elements remain unchanged. Only a fifth Grafana tab has been added.
-- The legacy 48-hour one-second health snapshots are read from the preserved 1.4 GB SQLite database **on demand**, via a read-only mount. They are never polled continuously or imported into the active database. The old DB must remain present for historical archive access.
-- The current system collects at 15-second intervals instead of the previous ~1-second collector cadence. Live data can therefore arrive later, by design, while the original 5-second page-refresh control continues to function.
-- `MCP_OBS_GATEWAY_CAPTURE_JSON` reports the independent gateway's active capture ports at `/api/config`; the inspector itself never binds those ports. This keeps all existing MCP tunnel listeners available even when the dashboard is restarted.
+No reboot was performed to test startup, because rebooting would restart MCP
+servers contrary to the owner's requirement. Boot is managed by
+`mcp-observatory-v2.service` and the new storage timer, both enabled in systemd.

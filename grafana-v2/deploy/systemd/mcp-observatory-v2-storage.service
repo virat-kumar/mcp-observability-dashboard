@@ -1,0 +1,14 @@
+[Unit]
+Description=Enforce MCP Observatory v2 3 GiB storage operating budget
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=virat
+Group=virat
+WorkingDirectory=/home/virat/Projects/mcp-observability-dashboard/grafana-v2
+ExecStart=/usr/bin/python3 /home/virat/Projects/mcp-observability-dashboard/grafana-v2/scripts/enforce_storage_budget.py
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=120

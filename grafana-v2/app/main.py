@@ -9,7 +9,7 @@ import sqlite3
 import statistics
 import time
 from collections import defaultdict, deque
-from contextlib import asynccontextmanager, closing
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -54,9 +54,7 @@ OBSERVED_LATENCY = Histogram("mcp_observer_request_latency_seconds", "Observed M
 TUNNEL_HEALTH = Gauge("mcp_observer_tunnel_health", "Tunnel health probe", ["mcp", "probe"])
 
 
-# The old 48-hour, 1-second snapshots remain read-only on disk. Consult them
-# only when explicitly asked for historical snapshots; never poll them.
-LEGACY_SNAPSHOT_DB = Path(os.getenv("MCP_OBS_LEGACY_DB", "/legacy/observability.db"))
+# Capture gateway remains independent of the inspector and keeps existing ports.
 GATEWAY_CAPTURE_MAP = json.loads(os.getenv("MCP_OBS_GATEWAY_CAPTURE_JSON", "{}"))
 
 
@@ -699,28 +697,6 @@ async def snapshots(from_: str | None = Query(None, alias="from"), to: str | Non
         f"SELECT {cols} FROM snapshots WHERE {' AND '.join(cond)} ORDER BY ts DESC LIMIT ?",
         [*args, limit]
     ).fetchall()]
-    # Older raw snapshots were intentionally not copied into the efficient v2
-    # database. Reading them only on demand preserves legacy history without
-    # adding continuous disk writes, CPU load or any MCP dependency.
-    if len(rows) < limit and LEGACY_SNAPSHOT_DB.is_file():
-        earliest = DB.execute("SELECT MIN(ts) FROM snapshots").fetchone()[0]
-        prior_cond = list(cond)
-        prior_args = list(args)
-        if earliest:
-            prior_cond.append("ts<?")
-            prior_args.append(earliest)
-        try:
-            uri = f"file:{LEGACY_SNAPSHOT_DB}?mode=ro&immutable=1"
-            with closing(sqlite3.connect(uri, uri=True, timeout=4)) as legacy:
-                legacy.row_factory = sqlite3.Row
-                prior = legacy.execute(
-                    f"SELECT {cols} FROM snapshots WHERE {' AND '.join(prior_cond)} ORDER BY ts DESC LIMIT ?",
-                    [*prior_args, limit - len(rows)],
-                ).fetchall()
-                rows.extend(dict(r) for r in prior)
-        except sqlite3.Error:
-            # Optional archival lookup must not break live dashboard requests.
-            pass
     rows.sort(key=lambda r: r["ts"], reverse=True)
     return {"rows": rows[:limit]}
 
