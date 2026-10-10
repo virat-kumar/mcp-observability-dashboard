@@ -42,3 +42,13 @@ The production cutover succeeded using the rollback-safe `scripts/cutover.sh`.
 The old `mcp-observability-dashboard.service` is disabled and inactive, its Docker container restart policy is `no`, and the new `mcp-observatory-v2.service` is enabled and active. Tailnet-only HTTPS port 8470 now fronts the new UI, Grafana at `/grafana/`, and the API. The staging 8471 Serve route was removed. All monitored MCP/tunnel process PIDs were verified unchanged. No reboot was performed, because rebooting would restart MCP servers against the user's restrictions.
 
 A successful live MCP `tools/call` request was captured by the replacement standalone gateway and linked to its request input/output in the new database. The legacy 1.4 GB database was retained without deletion. All 17 FarmToGo containers remained running and were not modified.
+
+
+## Expanded parity and archival testing
+
+- `node tests/full_ui_regression.cjs` runs full end-to-end Playwright/Chrome browser checks of every original dashboard interaction: preset/custom time windows, refresh controls, MCP filtering, overview and request sorting, error filter, latency chart navigation, request tool input/output and lifecycle modal, health cards, telemetry ordering/search/levels/modal/scroll/scale/follow-newest, raw status and Prometheus inspector, keyboard/overlay modal dismissal, actual periodic refresh, and Grafana charts and datasource queries. Use `BASE_URL=https://...` for HTTPS validation. The suite catches JavaScript page errors and HTTP 5xx responses.
+- `python3 tests/historical_snapshot_parity.py` verifies exact historical `/api/snapshots` equality against the legacy SQLite database for all six configured MCPs, plus gateway-config and newest/oldest merged filters.
+- `app/static/app.js` is byte-for-byte identical to the original UI's JavaScript, and the original HTML elements remain unchanged. Only a fifth Grafana tab has been added.
+- The legacy 48-hour one-second health snapshots are read from the preserved 1.4 GB SQLite database **on demand**, via a read-only mount. They are never polled continuously or imported into the active database. The old DB must remain present for historical archive access.
+- The current system collects at 15-second intervals instead of the previous ~1-second collector cadence. Live data can therefore arrive later, by design, while the original 5-second page-refresh control continues to function.
+- `MCP_OBS_GATEWAY_CAPTURE_JSON` reports the independent gateway's active capture ports at `/api/config`; the inspector itself never binds those ports. This keeps all existing MCP tunnel listeners available even when the dashboard is restarted.

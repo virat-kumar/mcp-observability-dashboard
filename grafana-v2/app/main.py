@@ -9,7 +9,7 @@ import sqlite3
 import statistics
 import time
 from collections import defaultdict, deque
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -52,6 +52,12 @@ LAST_COLLECT = Gauge("mcp_observer_last_collect_timestamp_seconds", "Last succes
 OBSERVED_REQUESTS = Counter("mcp_observer_requests_observed_total", "Completed MCP requests observed", ["mcp", "status"])
 OBSERVED_LATENCY = Histogram("mcp_observer_request_latency_seconds", "Observed MCP end-to-end request latency", ["mcp"])
 TUNNEL_HEALTH = Gauge("mcp_observer_tunnel_health", "Tunnel health probe", ["mcp", "probe"])
+
+
+# The old 48-hour, 1-second snapshots remain read-only on disk. Consult them
+# only when explicitly asked for historical snapshots; never poll them.
+LEGACY_SNAPSHOT_DB = Path(os.getenv("MCP_OBS_LEGACY_DB", "/legacy/observability.db"))
+GATEWAY_CAPTURE_MAP = json.loads(os.getenv("MCP_OBS_GATEWAY_CAPTURE_JSON", "{}"))
 
 
 def now_iso() -> str:
@@ -522,7 +528,7 @@ async def own_metrics():
 
 @app.get("/api/config")
 async def config():
-    return {"poll_seconds": POLL_SECONDS, "debug_logs": ENABLE_DEBUG, "tunnels": TUNNELS, "http_capture": HTTP_CAPTURE}
+    return {"poll_seconds": POLL_SECONDS, "debug_logs": ENABLE_DEBUG, "tunnels": TUNNELS, "http_capture": HTTP_CAPTURE or GATEWAY_CAPTURE_MAP}
 
 
 @app.get("/api/summary")
@@ -688,11 +694,35 @@ async def snapshots(from_: str | None = Query(None, alias="from"), to: str | Non
     if f: cond.append("ts>=?"); args.append(f)
     if t: cond.append("ts<=?"); args.append(t)
     if mcp and mcp != "all": cond.append("mcp=?"); args.append(mcp)
-    rows = DB.execute(
-        f"SELECT ts,mcp,healthy,ready,tool_calls_total,poll_errors_total,queue_length,queue_capacity,worker_occupancy,worker_capacity,rss_bytes,net_rx_bytes,net_tx_bytes FROM snapshots WHERE {' AND '.join(cond)} ORDER BY ts DESC LIMIT ?",
+    cols = "ts,mcp,healthy,ready,tool_calls_total,poll_errors_total,queue_length,queue_capacity,worker_occupancy,worker_capacity,rss_bytes,net_rx_bytes,net_tx_bytes"
+    rows = [dict(r) for r in DB.execute(
+        f"SELECT {cols} FROM snapshots WHERE {' AND '.join(cond)} ORDER BY ts DESC LIMIT ?",
         [*args, limit]
-    ).fetchall()
-    return {"rows": [dict(r) for r in rows]}
+    ).fetchall()]
+    # Older raw snapshots were intentionally not copied into the efficient v2
+    # database. Reading them only on demand preserves legacy history without
+    # adding continuous disk writes, CPU load or any MCP dependency.
+    if len(rows) < limit and LEGACY_SNAPSHOT_DB.is_file():
+        earliest = DB.execute("SELECT MIN(ts) FROM snapshots").fetchone()[0]
+        prior_cond = list(cond)
+        prior_args = list(args)
+        if earliest:
+            prior_cond.append("ts<?")
+            prior_args.append(earliest)
+        try:
+            uri = f"file:{LEGACY_SNAPSHOT_DB}?mode=ro&immutable=1"
+            with closing(sqlite3.connect(uri, uri=True, timeout=4)) as legacy:
+                legacy.row_factory = sqlite3.Row
+                prior = legacy.execute(
+                    f"SELECT {cols} FROM snapshots WHERE {' AND '.join(prior_cond)} ORDER BY ts DESC LIMIT ?",
+                    [*prior_args, limit - len(rows)],
+                ).fetchall()
+                rows.extend(dict(r) for r in prior)
+        except sqlite3.Error:
+            # Optional archival lookup must not break live dashboard requests.
+            pass
+    rows.sort(key=lambda r: r["ts"], reverse=True)
+    return {"rows": rows[:limit]}
 
 
 @app.get("/api/raw/metrics/{mcp}")
