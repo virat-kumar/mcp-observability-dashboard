@@ -55,6 +55,9 @@ services:
     command: [python, -m, app.gateway]
     environment:
       MCP_OBS_DB: /data/observability.db
+      # Hot-loaded CSS affects only ui://terminal-mcp/monitor-v1/v2/v3.html;
+      # deleting this optional file restores original UI without a restart.
+      MCP_OBS_TERMINAL_MONITOR_CSS_FILE: /data/terminal-monitor-viewport.css
       MCP_OBS_HTTP_CAPTURE_JSON: '${V2_GATEWAY_LISTEN_JSON:-{"terminal":{"listen_port":28900,"target":"http://127.0.0.1:8900"},"excel":{"listen_port":28017,"target":"http://127.0.0.1:8017"},"personal":{"listen_port":28765,"target":"http://127.0.0.1:8765"},"background":{"listen_port":27874,"target":"http://127.0.0.1:17873"}}}'
     volumes:
       - ./data/inspector:/data

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -180,6 +181,108 @@ def _json_body_from_sse(body: bytes) -> Any:
         return None
 
 
+# The original Terminal MCP process serves its ChatGPT app from a compiled Go
+# constant. An optional file-backed stylesheet adjusts only that *view* without
+# restarting the user's long-lived terminal sessions or changing MCP tool data.
+_TERMINAL_MONITOR_RESOURCES = frozenset(
+    f"ui://terminal-mcp/monitor-v{version}.html" for version in (1, 2, 3)
+)
+_TERMINAL_MONITOR_STYLE_MARKER = "/* terminal-monitor-viewport-overlay */"
+_MAX_TERMINAL_MONITOR_RESOURCE_BYTES = 256 * 1024
+
+
+def _terminal_monitor_stylesheet() -> str | None:
+    path = os.getenv("MCP_OBS_TERMINAL_MONITOR_CSS_FILE", "")
+    if not path:
+        return None
+    try:
+        file = Path(path)
+        if file.is_symlink() or not file.is_file():
+            return None
+        raw = file.read_bytes()
+        if not 0 < len(raw) <= 8192:
+            return None
+        css = raw.decode("utf-8").strip()
+        # This locally managed file may contain CSS only, not HTML/script or
+        # remote CSS imports. Never use a request-provided path or URL.
+        if any(fragment in css.lower() for fragment in ("<", ">", "@import", "url(", "expression(")):
+            return None
+        return css
+    except (OSError, UnicodeError):
+        return None
+
+
+def _overlay_terminal_resource_message(message: Any, uri: str, css: str) -> bool:
+    if not isinstance(message, dict):
+        return False
+    result = message.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("contents"), list):
+        return False
+    changed = False
+    for item in result["contents"]:
+        if not isinstance(item, dict) or item.get("uri") != uri:
+            continue
+        if "text/html" not in str(item.get("mimeType", "")):
+            continue
+        doc = item.get("text")
+        if not isinstance(doc, str) or "Ubuntu Terminal Monitor" not in doc or "</style>" not in doc:
+            continue
+        if _TERMINAL_MONITOR_STYLE_MARKER in doc or "height:100dvh" in doc:
+            continue
+        item["text"] = doc.replace(
+            "</style>", "\n" + _TERMINAL_MONITOR_STYLE_MARKER + "\n" + css + "\n</style>", 1
+        )
+        changed = True
+    return changed
+
+
+def _overlay_terminal_resource_response(body: bytes, content_type: str, uri: str, css: str) -> tuple[bytes, bool]:
+    """Change only the selected MCP app's HTML; leave other response bytes alone.
+
+    MCP Streamable HTTP may return a regular JSON response or a single/multiple
+    SSE events, each containing one JSON-RPC response. Preserve SSE framing.
+    """
+    if uri not in _TERMINAL_MONITOR_RESOURCES:
+        return body, False
+    if "text/event-stream" in content_type.lower():
+        try:
+            text = body.decode("utf-8")
+            # Keep event separators, fields and unmodified events byte-exact.
+            chunks = re.split(r"(\r?\n\r?\n)", text)
+            changed = False
+            for index in range(0, len(chunks), 2):
+                lines = chunks[index].splitlines(keepends=True)
+                data_lines = [j for j, line in enumerate(lines) if line.startswith("data:")]
+                if not data_lines:
+                    continue
+                data = "\n".join(lines[j][5:].strip() for j in data_lines)
+                try:
+                    message = json.loads(data)
+                except (ValueError, TypeError):
+                    continue
+                if not _overlay_terminal_resource_message(message, uri, css):
+                    continue
+                first = data_lines[0]
+                end = "\r\n" if lines[first].endswith("\r\n") else "\n" if lines[first].endswith("\n") else ""
+                lines[first] = "data: " + json.dumps(message, separators=(",", ":"), ensure_ascii=False) + end
+                for j in reversed(data_lines[1:]):
+                    del lines[j]
+                chunks[index] = "".join(lines)
+                changed = True
+            return ("".join(chunks).encode("utf-8"), True) if changed else (body, False)
+        except (UnicodeError, ValueError):
+            return body, False
+    if "application/json" not in content_type.lower():
+        return body, False
+    try:
+        message = json.loads(body)
+        if _overlay_terminal_resource_message(message, uri, css):
+            return json.dumps(message, separators=(",", ":"), ensure_ascii=False).encode("utf-8"), True
+    except (UnicodeError, ValueError, TypeError):
+        pass
+    return body, False
+
+
 class CaptureProxyManager:
     def __init__(self, db: sqlite3.Connection):
         self.db = db
@@ -228,10 +331,51 @@ class CaptureProxyManager:
 
         headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
         url = target + request.rel_url.path_qs
+        # Only the read-only terminal monitor resource is eligible. Everything
+        # else uses the unmodified streaming capture proxy below.
+        requested_uri = (req_obj.get("params") or {}).get("uri") if isinstance(req_obj, dict) and isinstance(req_obj.get("params"), dict) else None
+        stylesheet = (
+            _terminal_monitor_stylesheet()
+            if slug == "terminal" and request.method == "POST"
+            and rpc_method == "resources/read" and requested_uri in _TERMINAL_MONITOR_RESOURCES
+            else None
+        )
         async with self.session.request(
             request.method, url, headers=headers, data=body, allow_redirects=False
         ) as upstream:
             out_headers = {k: v for k, v in upstream.headers.items() if k.lower() not in HOP_BY_HOP}
+            if stylesheet and upstream.status == 200:
+                # resources/read is finite. Cap the buffered HTML response so
+                # unexpectedly large upstream data remains a streaming pass-through.
+                try:
+                    raw_response = await upstream.content.readexactly(
+                        _MAX_TERMINAL_MONITOR_RESOURCE_BYTES + 1
+                    )
+                except asyncio.IncompleteReadError as exc:
+                    raw_response = exc.partial
+                if len(raw_response) > _MAX_TERMINAL_MONITOR_RESOURCE_BYTES:
+                    response = web.StreamResponse(
+                        status=upstream.status, reason=upstream.reason, headers=out_headers
+                    )
+                    await response.prepare(request)
+                    await response.write(raw_response)
+                    async for chunk in upstream.content.iter_chunked(65536):
+                        await response.write(chunk)
+                    await response.write_eof()
+                    return response
+                modified, changed = _overlay_terminal_resource_response(
+                    raw_response, upstream.headers.get("Content-Type", ""), requested_uri, stylesheet
+                )
+                if changed:
+                    for key in tuple(out_headers):
+                        if key.lower() in {"etag", "content-md5"}:
+                            del out_headers[key]
+                # aiohttp may have decompressed the buffered payload; avoid
+                # advertising the upstream's (now stale) Content-Encoding.
+                for key in tuple(out_headers):
+                    if key.lower() == "content-encoding":
+                        del out_headers[key]
+                return web.Response(body=modified, status=upstream.status, reason=upstream.reason, headers=out_headers)
             response = web.StreamResponse(status=upstream.status, reason=upstream.reason, headers=out_headers)
             await response.prepare(request)
             captured = bytearray()

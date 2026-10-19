@@ -22,6 +22,29 @@ No MCP server or MCP tunnel service source/config is modified. The capture gatew
 is an independent process; the dashboard can be restarted without restarting the
 MCP forwarding path. FarmToGo's Grafana, databases, and containers are untouched.
 
+## Read-only ChatGPT Terminal monitor height (gateway-only override)
+
+The existing Terminal MCP server emits its embedded ChatGPT monitor HTML from a
+compiled Go constant. The capture gateway may **optionally** append only the
+viewport-height CSS from `deploy/terminal-monitor-viewport.css` to resources
+`ui://terminal-mcp/monitor-v1.html`, `v2.html`, and `v3.html`. The rest of MCP
+(including terminal command execution, sessions, Follow/Refresh, HTTP routes,
+authentication and captures) remains proxied unchanged. It never restarts the
+long-lived `terminal-mcp.service` or `openai-tunnel-client.service`.
+
+Activation: copy the reviewed CSS into the existing gateway volume at
+`grafana-v2/data/inspector/terminal-monitor-viewport.css` and recreate **only**
+the independent `mcp-observatory-v2-gateway` container with this release. The
+optional env `MCP_OBS_TERMINAL_MONITOR_CSS_FILE` points to the copy inside the
+existing `/data` mount. Source: `app/capture.py`, with isolated tests in
+`tests/test_terminal_monitor_overlay.py`. A missing/invalid stylesheet is a
+no-op; the proxy refuses external CSS imports, HTML and oversized stylesheets.
+The CSS is read afresh on each matching request. **Rollback without restart:**
+rename that CSS file to `.inactive`, then reread the monitor resource. **Full
+rollback:** restore the preserved previous gateway Docker image, without
+changing the original Terminal MCP service. Do not commit live SQLite data or
+credentials; only `deploy/terminal-monitor-viewport.css` is source-controlled.
+
 ## Disk budget: 3 GiB active data, best-effort management
 
 The dedicated cleanup timer `mcp-observatory-v2-storage.timer` runs every five
