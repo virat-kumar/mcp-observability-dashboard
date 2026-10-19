@@ -167,3 +167,21 @@ class ProxyIntegrationTests(unittest.IsolatedAsyncioTestCase):
         _, _, raw = await self.post('resources/read')
         self.assertNotIn('height:100dvh', json.loads(raw)['result']['contents'][0]['text'])
         self.assertIn('height:58vh', json.loads(raw)['result']['contents'][0]['text'])
+
+class VersionFourCacheTests(unittest.TestCase):
+    def test_tool_metadata_and_resource_alias(self):
+        base = {'jsonrpc':'2.0','id':1,'result':{'tools':[{'name':'terminal_monitor','_meta':{'openai/outputTemplate':'ui://terminal-mcp/monitor-v2.html','ui':{'resourceUri':'ui://terminal-mcp/monitor-v2.html'}}},{'name':'another','_meta':{'openai/outputTemplate':'ui://other/a.html'}}]}}
+        blob, changed = capture._remap_terminal_monitor_v4_response(json.dumps(base).encode(),'application/json','tools/list')
+        self.assertTrue(changed)
+        tools = json.loads(blob)['result']['tools']
+        self.assertEqual(tools[0]['_meta']['openai/outputTemplate'],capture._TERMINAL_MONITOR_V4)
+        self.assertEqual(tools[0]['_meta']['ui']['resourceUri'],capture._TERMINAL_MONITOR_V4)
+        self.assertEqual(tools[1],base['result']['tools'][1])
+        listed={'jsonrpc':'2.0','id':1,'result':{'resources':[{'uri':'ui://terminal-mcp/monitor-v2.html','mimeType':'text/html;profile=mcp-app'}]}}
+        buf, changed = capture._remap_terminal_monitor_v4_response(json.dumps(listed).encode(),'application/json','resources/list')
+        self.assertTrue(changed)
+        self.assertEqual(json.loads(buf)['result']['resources'][-1]['uri'],capture._TERMINAL_MONITOR_V4)
+        read = rpc_response('ui://terminal-mcp/monitor-v2.html')
+        buf, changed = capture._remap_terminal_monitor_v4_response(json.dumps(read).encode(),'application/json','resources/read')
+        self.assertTrue(changed)
+        self.assertEqual(json.loads(buf)['result']['contents'][0]['uri'],capture._TERMINAL_MONITOR_V4)

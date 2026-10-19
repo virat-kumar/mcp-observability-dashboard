@@ -187,6 +187,8 @@ def _json_body_from_sse(body: bytes) -> Any:
 _TERMINAL_MONITOR_RESOURCES = frozenset(
     f"ui://terminal-mcp/monitor-v{version}.html" for version in (1, 2, 3)
 )
+_TERMINAL_MONITOR_V4 = "ui://terminal-mcp/monitor-v4.html"
+_TERMINAL_MONITOR_V2 = "ui://terminal-mcp/monitor-v2.html"
 _TERMINAL_MONITOR_STYLE_MARKER = "/* terminal-monitor-viewport-overlay */"
 _MAX_TERMINAL_MONITOR_RESOURCE_BYTES = 256 * 1024
 
@@ -234,6 +236,52 @@ def _overlay_terminal_resource_message(message: Any, uri: str, css: str) -> bool
         )
         changed = True
     return changed
+
+
+def _remap_terminal_monitor_v4_response(body: bytes, content_type: str, method: str) -> tuple[bytes, bool]:
+    """Advertise a new app URI to break the host's cached v2/v3 HTML.
+
+    Never alter tool implementations, names, schema, capabilities or unrelated
+    resources. The proxy uses the original v2 HTML for its virtual v4 resource.
+    """
+    if "application/json" not in content_type.lower():
+        return body, False
+    try:
+        message = json.loads(body)
+        result = message.get("result")
+        if not isinstance(result, dict):
+            return body, False
+        changed = False
+        if method == "tools/list":
+            for tool in result.get("tools", []):
+                if not isinstance(tool, dict) or tool.get("name") not in ("terminal_open", "terminal_monitor"):
+                    continue
+                meta = tool.get("_meta")
+                if not isinstance(meta, dict):
+                    continue
+                if meta.get("openai/outputTemplate") in _TERMINAL_MONITOR_RESOURCES:
+                    meta["openai/outputTemplate"] = _TERMINAL_MONITOR_V4
+                    changed = True
+                if isinstance(meta.get("ui"), dict) and meta["ui"].get("resourceUri") in _TERMINAL_MONITOR_RESOURCES:
+                    meta["ui"]["resourceUri"] = _TERMINAL_MONITOR_V4
+                    changed = True
+        elif method == "resources/list":
+            resources = result.get("resources")
+            if isinstance(resources, list) and not any(isinstance(r,dict) and r.get("uri")==_TERMINAL_MONITOR_V4 for r in resources):
+                source = next((r for r in resources if isinstance(r,dict) and r.get("uri")==_TERMINAL_MONITOR_V2), None)
+                if source is not None:
+                    resources.append({**source, "uri": _TERMINAL_MONITOR_V4})
+                    changed = True
+        elif method == "resources/read":
+            for entry in result.get("contents", []):
+                if isinstance(entry, dict) and entry.get("uri") == _TERMINAL_MONITOR_V2:
+                    entry["uri"] = _TERMINAL_MONITOR_V4
+                    changed = True
+        if changed:
+            return json.dumps(message, separators=(",", ":"), ensure_ascii=False).encode(), True
+    except (UnicodeError, ValueError, TypeError):
+        pass
+    return body, False
 
 
 def _overlay_terminal_resource_response(body: bytes, content_type: str, uri: str, css: str) -> tuple[bytes, bool]:
@@ -330,6 +378,15 @@ class CaptureProxyManager:
             req_obj = None
 
         headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
+        # v4 is a virtual UI resource, served using the original v2 document.
+        # Only this exact request gets a substituted upstream URI.
+        v4_request = (slug == "terminal" and request.method == "POST"
+            and rpc_method == "resources/read" and isinstance(req_obj, dict)
+            and isinstance(req_obj.get("params"), dict)
+            and req_obj["params"].get("uri") == _TERMINAL_MONITOR_V4)
+        if v4_request:
+            forwarded = {**req_obj, "params": {**req_obj["params"], "uri": _TERMINAL_MONITOR_V2}}
+            body = json.dumps(forwarded, separators=(",", ":")).encode()
         url = target + request.rel_url.path_qs
         # Only the read-only terminal monitor resource is eligible. Everything
         # else uses the unmodified streaming capture proxy below.
@@ -337,7 +394,7 @@ class CaptureProxyManager:
         stylesheet = (
             _terminal_monitor_stylesheet()
             if slug == "terminal" and request.method == "POST"
-            and rpc_method == "resources/read" and requested_uri in _TERMINAL_MONITOR_RESOURCES
+            and rpc_method == "resources/read" and (requested_uri in _TERMINAL_MONITOR_RESOURCES or v4_request)
             else None
         )
         async with self.session.request(
@@ -364,8 +421,14 @@ class CaptureProxyManager:
                     await response.write_eof()
                     return response
                 modified, changed = _overlay_terminal_resource_response(
-                    raw_response, upstream.headers.get("Content-Type", ""), requested_uri, stylesheet
+                    raw_response, upstream.headers.get("Content-Type", ""),
+                    _TERMINAL_MONITOR_V2 if v4_request else requested_uri, stylesheet
                 )
+                if v4_request:
+                    modified, remapped = _remap_terminal_monitor_v4_response(
+                        modified, upstream.headers.get("Content-Type", ""), "resources/read"
+                    )
+                    changed = changed or remapped
                 if changed:
                     for key in tuple(out_headers):
                         if key.lower() in {"etag", "content-md5"}:
@@ -376,6 +439,19 @@ class CaptureProxyManager:
                     if key.lower() == "content-encoding":
                         del out_headers[key]
                 return web.Response(body=modified, status=upstream.status, reason=upstream.reason, headers=out_headers)
+            if (slug == "terminal" and request.method == "POST"
+                and rpc_method in ("tools/list", "resources/list") and upstream.status == 200):
+                raw = await upstream.read()
+                if len(raw) <= _MAX_TERMINAL_MONITOR_RESOURCE_BYTES:
+                    changed_body, was_changed = _remap_terminal_monitor_v4_response(
+                        raw, upstream.headers.get("Content-Type", ""), rpc_method
+                    )
+                    if was_changed:
+                        return web.Response(body=changed_body, status=upstream.status,
+                            reason=upstream.reason, headers={k:v for k,v in out_headers.items()
+                                if k.lower() not in ("content-encoding", "etag", "content-md5")})
+                return web.Response(body=raw, status=upstream.status,reason=upstream.reason,
+                    headers={k:v for k,v in out_headers.items() if k.lower()!="content-encoding"})
             response = web.StreamResponse(status=upstream.status, reason=upstream.reason, headers=out_headers)
             await response.prepare(request)
             captured = bytearray()
