@@ -22,6 +22,30 @@ No MCP server or MCP tunnel service source/config is modified. The capture gatew
 is an independent process; the dashboard can be restarted without restarting the
 MCP forwarding path. FarmToGo's Grafana, databases, and containers are untouched.
 
+## Terminal availability and capture storage
+
+Capture storage must not block MCP traffic. The standalone gateway bounds SQLite
+write contention to 50 ms and preserves upstream responses if capture persistence
+fails. Capture-offset ingestion commits even when no new records are found;
+collector failures roll back. Command lookup indexes and per-pass candidate
+caching keep historical capture backlogs from repeatedly scanning all requests.
+
+These safeguards were deployed locally on 2026-11-09 as image
+`sha256:1957854e2052d1cdb9fee4a078ad4df47e17d9ddebc6368bd7fc5ce52df7b950`.
+Gateway and inspector retain `unless-stopped` restart policies, with boot handled
+by `mcp-observatory-v2.service`. Original terminal sessions and the OAuth tunnel
+do not need restarting to recover capture storage.
+
+Before deployment, run the current tests against the candidate image, including
+the locked-database responsiveness, empty-ingestion transaction and historical
+backlog query regressions in `tests/test_terminal_monitor_overlay.py`. Use the
+current candidate image ID and mount the current tests directory; do not use old
+smoke scripts or historical screenshots as release evidence. After deployment,
+compare running image IDs and source checksums, then verify live localhost
+gateway initialization, tool discovery, a disposable PTY command with exit zero,
+monitor resource retrieval and session cleanup. Confirm unauthenticated OAuth
+gateway access still returns 401. Health endpoints alone do not prove execution.
+
 ## Read-only ChatGPT Terminal monitor height (gateway-only override)
 
 The existing Terminal MCP server emits its embedded ChatGPT monitor HTML from a

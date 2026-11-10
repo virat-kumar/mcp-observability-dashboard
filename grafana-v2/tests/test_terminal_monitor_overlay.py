@@ -167,3 +167,70 @@ class ProxyIntegrationTests(unittest.IsolatedAsyncioTestCase):
         _, _, raw = await self.post('resources/read')
         self.assertNotIn('height:100dvh', json.loads(raw)['result']['contents'][0]['text'])
         self.assertIn('height:58vh', json.loads(raw)['result']['contents'][0]['text'])
+
+    async def test_locked_capture_database_preserves_proxy_responsiveness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / 'capture.db'
+            writer = sqlite3.connect(database_path)
+            writer.execute('CREATE TABLE requests(id INTEGER PRIMARY KEY)')
+            capture.ensure_schema(writer)
+            proxy_database = sqlite3.connect(database_path, timeout=0.05)
+            self.proxy.db = proxy_database
+            try:
+                writer.execute('INSERT INTO requests DEFAULT VALUES')
+                async with self.client.post(
+                    f'http://127.0.0.1:{self.port}/mcp',
+                    json={'jsonrpc': '2.0', 'id': 42, 'method': 'tools/call',
+                          'params': {'name': 'terminal_status', 'arguments': {}}},
+                ) as response:
+                    self.assertEqual(response.status, 200)
+                    await response.read()
+                status, _, _ = await asyncio.wait_for(self.post('tools/list'), timeout=0.5)
+                self.assertEqual(status, 200)
+                self.assertFalse(proxy_database.in_transaction)
+            finally:
+                writer.rollback()
+                writer.close()
+                proxy_database.close()
+                self.proxy.db = self.db
+
+
+class StdioTransactionTests(unittest.TestCase):
+    def test_unmatched_backlog_reuses_candidate_query(self):
+        database = sqlite3.connect(':memory:')
+        database.row_factory = sqlite3.Row
+        try:
+            database.execute('CREATE TABLE requests(request_key TEXT, mcp TEXT, rpc_method TEXT, mcp_reply_at TEXT, delivered_at TEXT)')
+            capture.ensure_schema(database)
+            for number in range(100):
+                database.execute(
+                    'INSERT INTO captures(capture_key,mcp,source,request_at,response_at,request_json,response_json) VALUES(?,?,?,?,?,?,?)',
+                    (str(number), 'terminal', 'http-proxy', '2026-11-09T00:00:00+00:00',
+                     '2026-11-09T00:00:00+00:00', '{}', '{}'),
+                )
+            database.commit()
+            statements = []
+            database.set_trace_callback(statements.append)
+            self.assertEqual(capture.link_captures(database), 0)
+            candidate_queries = [statement for statement in statements if 'ORDER BY delivered_at DESC LIMIT 100' in statement]
+            self.assertEqual(len(candidate_queries), 1)
+        finally:
+            database.close()
+
+    def test_unchanged_capture_file_releases_writer_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / 'capture.db'
+            database = sqlite3.connect(database_path)
+            other_writer = sqlite3.connect(database_path, timeout=0.05)
+            try:
+                database.execute('CREATE TABLE requests(id INTEGER PRIMARY KEY)')
+                capture.ensure_schema(database)
+                (Path(directory) / 'terminal.jsonl').write_text('')
+                with patch.object(capture, 'CAPTURE_DIR', Path(directory)):
+                    self.assertEqual(capture.ingest_stdio_files(database), 0)
+                    self.assertFalse(database.in_transaction)
+                    other_writer.execute('INSERT INTO requests DEFAULT VALUES')
+                    other_writer.commit()
+            finally:
+                other_writer.close()
+                database.close()

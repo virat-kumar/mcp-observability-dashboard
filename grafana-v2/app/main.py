@@ -214,6 +214,7 @@ def open_db() -> sqlite3.Connection:
           observed_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_requests_mcp_delivered ON requests(mcp, delivered_at);
+        CREATE INDEX IF NOT EXISTS idx_requests_mcp_command ON requests(mcp, cmd_request_id, delivered_at);
         CREATE INDEX IF NOT EXISTS idx_requests_duration ON requests(duration_ms);
 
         CREATE TABLE IF NOT EXISTS collector_state (
@@ -429,6 +430,7 @@ class Collector:
             LAST_COLLECT.labels(slug).set(time.time())
             self.latest_error.pop(slug, None)
         except Exception as e:
+            DB.rollback()
             COLLECT_ERRORS.labels(slug).inc()
             self.latest_error[slug] = str(e)
 

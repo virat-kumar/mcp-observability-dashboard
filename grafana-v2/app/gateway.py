@@ -11,9 +11,9 @@ from .capture import CaptureProxyManager, ensure_schema
 async def main():
     db_path=Path(os.environ.get('MCP_OBS_DB','/data/observability.db'))
     db_path.parent.mkdir(parents=True,exist_ok=True)
-    db=sqlite3.connect(db_path, timeout=30, isolation_level='DEFERRED')
+    db=sqlite3.connect(db_path, timeout=0.05, isolation_level='DEFERRED')
     db.execute('PRAGMA journal_mode=WAL')
-    db.execute('PRAGMA busy_timeout=30000')
+    db.execute('PRAGMA busy_timeout=50')
     ensure_schema(db)
     proxy=CaptureProxyManager(db)
     await proxy.start()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -390,16 +391,19 @@ class CaptureProxyManager:
             resp_obj = _json_body_from_sse(bytes(captured))
             response_json = sanitize_response(resp_obj)
             key = f"{slug}:http:{cmd_request_id or ''}:{rpc_id or ''}:{request_at}"
-            self.db.execute(
-                """
-                INSERT OR REPLACE INTO captures
-                (capture_key,mcp,source,cmd_request_id,rpc_id,rpc_method,tool_name,request_at,response_at,request_json,response_json,linked_request_key)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,COALESCE((SELECT linked_request_key FROM captures WHERE capture_key=?),NULL))
-                """,
-                (key, slug, "http-proxy", cmd_request_id, rpc_id, rpc_method, tool_name,
-                 request_at, response_at, request_json, response_json, key),
-            )
-            self.db.commit()
+            try:
+                with self.db:
+                    self.db.execute(
+                        """
+                        INSERT OR REPLACE INTO captures
+                        (capture_key,mcp,source,cmd_request_id,rpc_id,rpc_method,tool_name,request_at,response_at,request_json,response_json,linked_request_key)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,COALESCE((SELECT linked_request_key FROM captures WHERE capture_key=?),NULL))
+                        """,
+                        (key, slug, "http-proxy", cmd_request_id, rpc_id, rpc_method, tool_name,
+                         request_at, response_at, request_json, response_json, key),
+                    )
+            except sqlite3.Error:
+                logging.getLogger(__name__).warning("Capture storage unavailable; upstream response preserved")
         return response
 
 
@@ -455,13 +459,13 @@ def ingest_stdio_files(db: sqlite3.Connection) -> int:
             "INSERT INTO capture_offsets(path,byte_offset) VALUES(?,?) ON CONFLICT(path) DO UPDATE SET byte_offset=excluded.byte_offset",
             (str(path), offset),
         )
-    if ingested:
-        db.commit()
+    db.commit()
     return ingested
 
 
 def link_captures(db: sqlite3.Connection) -> int:
     linked = 0
+    candidate_cache = {}
     rows = db.execute(
         "SELECT * FROM captures WHERE linked_request_key IS NULL AND request_json IS NOT NULL AND response_json IS NOT NULL ORDER BY request_at"
     ).fetchall()
@@ -473,14 +477,16 @@ def link_captures(db: sqlite3.Connection) -> int:
                 (c["mcp"], c["cmd_request_id"]),
             ).fetchone()
         if req is None and c["response_at"]:
-            candidates = db.execute(
-                """
-                SELECT * FROM requests
-                WHERE mcp=? AND rpc_method='tools/call' AND output_json IS NULL AND mcp_reply_at IS NOT NULL
-                ORDER BY delivered_at DESC LIMIT 100
-                """,
-                (c["mcp"],),
-            ).fetchall()
+            if c["mcp"] not in candidate_cache:
+                candidate_cache[c["mcp"]] = db.execute(
+                    """
+                    SELECT * FROM requests
+                    WHERE mcp=? AND rpc_method='tools/call' AND output_json IS NULL AND mcp_reply_at IS NOT NULL
+                    ORDER BY delivered_at DESC LIMIT 100
+                    """,
+                    (c["mcp"],),
+                ).fetchall()
+            candidates = candidate_cache[c["mcp"]]
             target = datetime.fromisoformat(c["response_at"].replace("Z", "+00:00")).timestamp()
             best = None
             best_delta = 999999.0
@@ -505,6 +511,7 @@ def link_captures(db: sqlite3.Connection) -> int:
             (c["tool_name"], c["request_json"], c["response_json"], c["source"], iso_now(), req["request_key"]),
         )
         db.execute("UPDATE captures SET linked_request_key=? WHERE capture_key=?", (req["request_key"], c["capture_key"]))
+        candidate_cache.pop(c["mcp"], None)
         linked += 1
     if linked:
         db.commit()
