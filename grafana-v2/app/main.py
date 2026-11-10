@@ -328,7 +328,7 @@ class Collector:
             new_delivered = []
             if not isinstance(logs_r, Exception) and logs_r.status_code < 400:
                 payload = logs_r.json()
-                for ev in payload.get("events", []):
+                for ev in payload.get("events") or []:
                     attrs = ev.get("attrs") or {}
                     client_id = str(attrs.get("client_instance_id") or status.get("client_instance_id") or "")
                     seq = int(ev.get("seq") or 0)

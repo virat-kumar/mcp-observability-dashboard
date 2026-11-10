@@ -52,12 +52,14 @@ class CollectorTests(unittest.IsolatedAsyncioTestCase):
             if request.url.path == "/healthz": return httpx.Response(200, text="live")
             if request.url.path == "/readyz": return httpx.Response(200, text="ready (mcp initialize requires auth: caller JWT)")
             if request.url.path == "/metrics": return httpx.Response(200, text="")
+            if request.url.path == "/api/logs": return httpx.Response(200, json={"events": None})
             return httpx.Response(200, json={})
 
         self.collector.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         await self.collector.collect_one("inventory_test_tunnel", {"base": "http://fixture", "port": 1})
         row = main.DB.execute("SELECT healthy,ready FROM snapshots WHERE mcp='inventory_test_tunnel' ORDER BY id DESC LIMIT 1").fetchone()
         self.assertEqual(tuple(row), (1, 1))
+        self.assertNotIn("inventory_test_tunnel", self.collector.latest_error)
         self.assertFalse(any(request.method != "GET" for request in requests))
 
     async def test_health_only_does_not_probe_tools_or_invent_latency(self):

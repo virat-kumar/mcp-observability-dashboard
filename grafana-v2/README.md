@@ -24,6 +24,33 @@ MCP forwarding path. FarmToGo's Grafana, databases, and containers are untouched
 
 ## MCP inventory and retired versions
 
+### OAuth startup readiness repair (2026-11-09)
+
+Tunnel-client 0.0.13 was observed retaining boot-time DNS, tunnel metadata and
+OAuth discovery failures after its gateway recovered. The five affected tunnels
+were Terminal, Plans, Jupyter, Tailnet File Share and Craft Anything. Their local
+gateways were healthy while tunnel `/readyz` continued returning 503.
+
+The source-controlled drop-ins in `deploy/systemd/tunnel-oauth-startup/` add a
+bounded pre-start DNS/local-gateway metadata check and a post-start check of
+`/readyz`, `/api/oauth` and `/api/status`. Failed checks fail service startup so
+the existing restart policy retries discovery. The installed helper is
+`~/.local/lib/mcp-tunnel-guards/wait_mcp_startup.py`, copied from
+`scripts/wait_mcp_startup.py`; installed drop-ins are named
+`oauth-startup-readiness.conf` under each affected system service's `.d` directory.
+They do not change credentials, gateway policies, DNS settings or MCP servers.
+
+All five clients were reconnected one at a time after checking worker occupancy;
+readiness returned 200 and both metadata errors cleared. Terminal's 200 response
+may explain that initialization needs authentication; that is expected and does
+not authorize anonymous tools. No full reboot or fresh authenticated ChatGPT tool
+execution was performed. Empty/null startup log lists are handled by the inspector.
+
+Preserve these checks during future tunnel upgrades, run `test_tunnel_startup.py`,
+and compare installed helper/drop-ins with their source. Rollback removes only
+these five drop-ins and reloads systemd; original unit/profile files remain intact.
+Do not re-enable retired unauthenticated profiles as recovery.
+
 `app/mcp_inventory.json` is the shared inventory for the inspector and generated
 Prometheus targets. The verified local inventory has fourteen services: Terminal,
 Playwright, Computer Use Linux, Personal, Excel, Background Agent, Desktop Live,
