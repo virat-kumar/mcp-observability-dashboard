@@ -6,8 +6,7 @@ scrape_configs:
   - job_name: mcp-tunnels
     metrics_path: /metrics
     static_configs:
-      - targets:
-          - 127.0.0.1:8080
+      - targets: [127.0.0.1:18880]
         labels: {mcp: terminal}
       - targets: [127.0.0.1:8081]
         labels: {mcp: playwright}
@@ -19,6 +18,18 @@ scrape_configs:
         labels: {mcp: excel}
       - targets: [127.0.0.1:8085]
         labels: {mcp: background}
+      - targets: [127.0.0.1:18951]
+        labels: {mcp: desktop_live}
+      - targets: [127.0.0.1:18952]
+        labels: {mcp: chrome_live}
+      - targets: [127.0.0.1:18960]
+        labels: {mcp: plans}
+      - targets: [127.0.0.1:18964]
+        labels: {mcp: jupyter}
+      - targets: [127.0.0.1:8965]
+        labels: {mcp: file_share}
+      - targets: [127.0.0.1:19244]
+        labels: {mcp: craft_anything}
   - job_name: mcp-observer-v2
     static_configs:
       - targets: [127.0.0.1:9120]

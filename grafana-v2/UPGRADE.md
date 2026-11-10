@@ -78,6 +78,13 @@ coverage if the implementation is replaced:
 The original deployment passed ten tests in this test module. Future releases
 may have more tests; the historical count is not a substitute for current results.
 
+For inventory changes, also run `test_mcp_inventory.py` against the candidate
+image, mounting current `tests`, `scripts` and `prometheus` directories read-only.
+Run `scripts/generate_prometheus_config.py --check` and the current
+`tests/inventory_ui.cjs` browser check against an isolated inspector. Keep stable
+MCP keys for renamed OAuth versions; list retired versions under their active
+replacement and never turn old listeners back on to satisfy a dashboard check.
+
 ## Deploy, verify, and record the new version
 
 1. Retain the current verified **fixed** gateway and inspector images for rollback.

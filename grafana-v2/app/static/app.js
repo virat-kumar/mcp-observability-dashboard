@@ -178,11 +178,13 @@ function drawTimeline(c, points) {
 }
 
 function drawLatencyBars(c, rows) {
-  const [x,w,h] = prepCanvas(c);
   state.latencyHitboxes = [];
   const all = rows.length ? rows : Object.entries(state.config?.tunnels || {}).map(([mcp,cfg]) => ({
     mcp, name:cfg.name, count:0, avg_ms:null, p95_ms:null
   }));
+  const height = Math.max(285, all.length * 30 + 74);
+  c.style.height = height + 'px';
+  const [x,w,h] = prepCanvas(c, height);
   const L=142,R=34,T=26,B=48,W=w-L-R,H=h-T-B;
   const max=Math.max(1,...all.map(z=>Math.max(z.p95_ms||0,z.avg_ms||0)));
   const rh=H/Math.max(1,all.length);
@@ -262,10 +264,10 @@ async function loadHealth() {
   $('#healthUpdated').textContent='updated '+new Date().toLocaleTimeString();
   $('#healthGrid').innerHTML=h.rows.map(r=>
     '<div class="card"><div class="section"><h2>'+esc(r.name)+'</h2>' +
-    '<span class="badge"><i class="dot '+(r.healthy&&r.ready?'ok':r.healthy?'warn':'bad')+'"></i>' +
-    (r.healthy&&r.ready?'healthy':r.healthy?'not ready':'down')+'</span></div>' +
+    '<span class="badge"><i class="dot '+(r.healthy&&(r.ready||r.monitoring==='health_only')?'ok':r.healthy?'warn':'bad')+'"></i>' +
+    (r.monitoring==='health_only'?(r.healthy?'health only':'down'):r.healthy&&r.ready?'healthy':r.healthy?'not ready':'down')+'</span></div>' +
     '<div class="kv"><div>Health</div><div class="'+(r.healthy?'ok':'bad')+'">'+(r.healthy?'LIVE':'FAIL')+'</div>' +
-    '<div>Ready</div><div class="'+(r.ready?'ok':'warn')+'">'+(r.ready?'READY':'NO')+'</div>' +
+    '<div>Ready</div><div class="'+(r.ready?'ok':'warn')+'">'+(r.monitoring==='health_only'?'TOOLS UNVERIFIED':r.ready?'READY':'NO')+'</div>' +
     '<div>Last seen</div><div>'+ago(r.last_seen)+'</div>' +
     '<div>Uptime</div><div>'+(r.uptime_seconds==null?'—':(r.uptime_seconds/3600).toFixed(1)+' h')+'</div>' +
     '<div>Tool calls</div><div>'+fmtNum(r.tool_calls_total)+'</div>' +
@@ -274,6 +276,7 @@ async function loadHealth() {
     '<div>Workers</div><div>'+fmtNum(r.worker_occupancy)+' / '+fmtNum(r.worker_capacity)+'</div>' +
     '<div>RSS</div><div>'+fmtBytes(r.rss_bytes)+'</div>' +
     '<div>Net RX / TX</div><div>'+fmtBytes(r.net_rx_bytes)+' / '+fmtBytes(r.net_tx_bytes)+'</div></div>' +
+    (r.deprecated_versions?.length?'<div class="muted" style="margin-top:8px;font-size:10px">Deprecated versions (retired): '+r.deprecated_versions.map(esc).join('; ')+'</div>':'') +
     (r.error?'<div class="bad" style="margin-top:8px;font-size:10px">'+esc(r.error)+'</div>':'')+'</div>'
   ).join('');
 }

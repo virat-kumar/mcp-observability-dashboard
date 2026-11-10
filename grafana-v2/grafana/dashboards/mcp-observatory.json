@@ -19,8 +19,8 @@
   "panels": [
     {
       "id": 1,
-      "title": "MCP tunnel health",
-      "description": "1=healthy scrape; 0=unavailable",
+      "title": "MCP service health",
+      "description": "Service health for all MCPs; health-only services do not imply authenticated tool readiness",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -34,7 +34,7 @@
       },
       "targets": [
         {
-          "expr": "up{job=\"mcp-tunnels\",mcp=~\"$mcp\"}",
+          "expr": "mcp_observer_tunnel_health{probe=\"health\",mcp=~\"$mcp\"}",
           "legendFormat": "{{mcp}}",
           "refId": "A"
         }
@@ -485,7 +485,7 @@
           "uid": "mcp-prometheus"
         },
         "query": {
-          "query": "label_values(up{job=\"mcp-tunnels\"}, mcp)",
+          "query": "label_values(mcp_observer_tunnel_health{probe=\"health\"}, mcp)",
           "refId": "A"
         },
         "includeAll": true,

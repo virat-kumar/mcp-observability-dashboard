@@ -24,16 +24,9 @@ from .capture import CaptureProxyManager, HTTP_CAPTURE, ensure_schema, ingest_st
 
 DB_PATH = Path(os.getenv("MCP_OBS_DB", "/data/observability.db"))
 POLL_SECONDS = float(os.getenv("MCP_OBS_POLL_SECONDS", "0.5"))
-ENABLE_DEBUG = os.getenv("MCP_OBS_DEBUG_LOGS", "true").lower() == "true"
+ENABLE_DEBUG = os.getenv("MCP_OBS_DEBUG_LOGS", "false").lower() == "true"
 
-DEFAULT_TUNNELS = {
-    "terminal": {"name": "Ubuntu Terminal", "port": 8080},
-    "playwright": {"name": "Chrome Playwright", "port": 8081},
-    "computer": {"name": "Computer Use Linux", "port": 8082},
-    "personal": {"name": "Personal MCP", "port": 8083},
-    "excel": {"name": "Excel MCP", "port": 8084},
-    "background": {"name": "Background Agent", "port": 8085},
-}
+DEFAULT_TUNNELS = json.loads((Path(__file__).parent / "mcp_inventory.json").read_text())
 _raw_tunnels = os.getenv("MCP_OBS_TUNNELS_JSON")
 TUNNELS = json.loads(_raw_tunnels) if _raw_tunnels else DEFAULT_TUNNELS
 for slug, cfg in TUNNELS.items():
@@ -269,6 +262,22 @@ class Collector:
     async def collect_one(self, slug: str, cfg: dict[str, Any]):
         base = cfg["base"]
         try:
+            if cfg.get("monitoring") == "health_only":
+                response = await self.client.get(f"{base}/healthz")
+                response.raise_for_status()
+                payload = response.json()
+                healthy = payload.get("status") == "ok" and payload.get("database", True) is not False
+                status = {"monitoring": "health_only", "health": payload}
+                self.latest_status[slug] = status
+                TUNNEL_HEALTH.labels(slug, "health").set(int(healthy))
+                DB.execute(
+                    "INSERT INTO snapshots(ts,mcp,healthy,ready,status_json,metrics_json) VALUES(?,?,?,?,?,?)",
+                    (now_iso(), slug, int(healthy), 0, json.dumps(status), "{}"),
+                )
+                DB.commit()
+                LAST_COLLECT.labels(slug).set(time.time())
+                self.latest_error.pop(slug, None)
+                return
             await self.set_debug(slug, base)
             health_t, ready_t, status_r, metrics_r, logs_r = await asyncio.gather(
                 self.get_text(f"{base}/healthz"),
@@ -280,7 +289,8 @@ class Collector:
             )
 
             healthy = int(isinstance(health_t, tuple) and health_t[0] and health_t[1].strip() == "live")
-            ready = int(isinstance(ready_t, tuple) and ready_t[0] and ready_t[1].strip() == "ready")
+            ready = int(isinstance(ready_t, tuple) and ready_t[0] and
+                        (ready_t[1].strip() == "ready" or ready_t[1].strip().startswith("ready (")))
             TUNNEL_HEALTH.labels(slug, "health").set(healthy)
             TUNNEL_HEALTH.labels(slug, "ready").set(ready)
 
@@ -288,6 +298,8 @@ class Collector:
                 status = {}
             else:
                 status = status_r.json()
+            if not ready:
+                status["readiness_error"] = ready_t[1] if isinstance(ready_t, tuple) else str(ready_t)
             if isinstance(metrics_r, Exception) or metrics_r.status_code >= 400:
                 raise RuntimeError(f"metrics unavailable: {metrics_r}")
             metrics_text = metrics_r.text
@@ -431,6 +443,8 @@ class Collector:
             self.latest_error.pop(slug, None)
         except Exception as e:
             DB.rollback()
+            TUNNEL_HEALTH.labels(slug, "health").set(0)
+            TUNNEL_HEALTH.labels(slug, "ready").set(0)
             COLLECT_ERRORS.labels(slug).inc()
             self.latest_error[slug] = str(e)
 
@@ -647,10 +661,12 @@ async def health_api():
         status = collector.latest_status.get(slug, {})
         item = {
             "mcp": slug, "name": cfg["name"], "port": cfg["port"],
-            "healthy": bool(r["healthy"]) if r else False,
-            "ready": bool(r["ready"]) if r else False,
+            "monitoring": cfg.get("monitoring", "tunnel"),
+            "deprecated_versions": cfg.get("deprecated_versions", []),
+            "healthy": bool(r["healthy"]) and slug not in collector.latest_error if r else False,
+            "ready": bool(r["ready"]) and slug not in collector.latest_error if r else False,
             "last_seen": r["ts"] if r else None,
-            "error": collector.latest_error.get(slug),
+            "error": collector.latest_error.get(slug) or status.get("readiness_error"),
             "tunnel_id": status.get("control_plane_tunnel_id"),
             "mcp_target": status.get("mcp_server_url") or (status.get("channels") or [{}])[0].get("details"),
             "started_at": status.get("started_at"),

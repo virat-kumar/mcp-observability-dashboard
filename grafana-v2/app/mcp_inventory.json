@@ -1,0 +1,16 @@
+{
+  "terminal": {"name": "Ubuntu Terminal OAuth", "port": 18880, "deprecated_versions": ["Legacy unauthenticated Terminal transport (:8080)", "English Terminal (:8901)", "Development Terminal (:8912)"]},
+  "playwright": {"name": "Chrome Playwright OAuth", "port": 8081, "deprecated_versions": ["Legacy unauthenticated Playwright plugin"]},
+  "computer": {"name": "Ubuntu Desktop - Computer Use Linux OAuth", "port": 8082, "deprecated_versions": ["Legacy unauthenticated Computer Use plugin"]},
+  "personal": {"name": "Virat Personal MCP Tools OAuth", "port": 8083, "deprecated_versions": ["Legacy unauthenticated Personal plugin"]},
+  "excel": {"name": "Local Excel MCP OAuth", "port": 8084, "deprecated_versions": ["Legacy unauthenticated Excel plugin"]},
+  "background": {"name": "Background Agent OAuth", "port": 8085, "deprecated_versions": ["Legacy unauthenticated Background Agent plugin"]},
+  "desktop_live": {"name": "Ubuntu Desktop Live OAuth", "port": 18951, "deprecated_versions": ["Legacy unauthenticated Desktop Live plugin"]},
+  "chrome_live": {"name": "Chrome Browser Live OAuth", "port": 18952, "deprecated_versions": ["Legacy unauthenticated Chrome Live plugin"]},
+  "plans": {"name": "Plans MCP OAuth", "port": 18960, "deprecated_versions": ["Legacy unauthenticated Plans plugin"]},
+  "jupyter": {"name": "Jupyter MCP OAuth", "port": 18964},
+  "file_share": {"name": "Tailnet File Share OAuth", "port": 8965},
+  "craft_anything": {"name": "Craft Anything OAuth", "port": 19244},
+  "neo4j": {"name": "Neo4j MCP", "port": 8512, "monitoring": "health_only"},
+  "job_queue": {"name": "Job Queue MCP", "port": 8766, "monitoring": "health_only"}
+}

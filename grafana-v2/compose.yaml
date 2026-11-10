@@ -71,7 +71,7 @@ services:
     environment:
       MCP_OBS_DB: /data/observability.db
       MCP_OBS_POLL_SECONDS: '15'
-      MCP_OBS_DEBUG_LOGS: 'true'
+      MCP_OBS_DEBUG_LOGS: 'false'
       MCP_OBS_CAPTURE_DIR: /data/captures
       MCP_OBS_HTTP_CAPTURE_JSON: '${V2_HTTP_CAPTURE_JSON:-{}}'
       MCP_OBS_GATEWAY_CAPTURE_JSON: '${V2_GATEWAY_LISTEN_JSON:-{"terminal":{"listen_port":28900,"target":"http://127.0.0.1:8900"},"excel":{"listen_port":28017,"target":"http://127.0.0.1:8017"},"personal":{"listen_port":28765,"target":"http://127.0.0.1:8765"},"background":{"listen_port":27874,"target":"http://127.0.0.1:17873"}}}'

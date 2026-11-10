@@ -14,13 +14,46 @@ full Playwright regression tests are included in this folder.
 | --- | --- | --- |
 | Inspector | 127.0.0.1:9120 | Original UI/APIs, 15-second collector, Grafana reverse proxy |
 | Grafana | 127.0.0.1:3120 | Twelve MCP metric charts |
-| Prometheus | 127.0.0.1:9191 | Scrapes six existing MCP tunnel metric endpoints |
+| Prometheus | 127.0.0.1:9191 | Scrapes twelve active MCP tunnels and inspector metrics |
 | Capture gateway | 18900, 18017, 18765, 17874 | Original HTTP listener ports for four MCP tunnels |
 | HTTPS | Tailnet-only 8470 | Forwards to inspector, with Grafana at `/grafana/` |
 
 No MCP server or MCP tunnel service source/config is modified. The capture gateway
 is an independent process; the dashboard can be restarted without restarting the
 MCP forwarding path. FarmToGo's Grafana, databases, and containers are untouched.
+
+## MCP inventory and retired versions
+
+`app/mcp_inventory.json` is the shared inventory for the inspector and generated
+Prometheus targets. The verified local inventory has fourteen services: Terminal,
+Playwright, Computer Use Linux, Personal, Excel, Background Agent, Desktop Live,
+Chrome Live, Plans, Jupyter, Tailnet File Share, Craft Anything, Neo4j and Job Queue.
+The first twelve use tunnel telemetry. Neo4j and Job Queue are explicitly marked
+health-only; authenticated tool execution and latency are not inferred from health.
+
+Historical keys for renamed MCPs stay unchanged, preserving request history.
+Deprecated unauthenticated plugin versions are listed under their OAuth replacement
+in Health, rather than polled as separate broken services. Terminal's retired
+legacy transport `:8080`, English variant `:8901` and development variant `:8912`
+are grouped under active Terminal `:18880`. Other active tunnel ports such as
+`:8081` are still used by OAuth versions and must not be retired based on age.
+This inventory covers this Ubuntu machine; remote MCP hosts and cloud-only apps
+are not silently probed or counted as locally hosted services.
+
+When adding or moving an MCP, update the inventory, then run:
+
+```bash
+python3 scripts/generate_prometheus_config.py
+python3 scripts/generate_prometheus_config.py --check
+python3 scripts/generate_grafana_dashboard.py
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+Read-only observation is the default: automatic tunnel log-level writes are
+disabled. Readiness warnings such as OAuth discovery failures remain visible;
+being listed in the dashboard does not mean a service is ready or tool-tested.
+No MCP server, tunnel, authentication policy or retired listener is changed by
+updating this inventory. Existing capture routes are retained for compatibility.
 
 ## Terminal availability and capture storage
 
@@ -115,6 +148,9 @@ continue to append to those files. It is not a v1 database or an archive.
 
 ## Testing
 
+- `python3 grafana-v2/scripts/generate_prometheus_config.py --check` — detect drift between inventory and scrape targets.
+- `BASE_URL=http://127.0.0.1:29120 node grafana-v2/tests/inventory_ui.cjs` — verify current inventory, combined retired versions, health-only labels and chart layout against an isolated inspector.
+- Run `python3 -m unittest discover -s tests -p 'test_*.py' -v` inside the candidate image with current tests mounted, as described in `UPGRADE.md`.
 - `node grafana-v2/tests/full_ui_regression.cjs` — headless Chrome Playwright
   regression suite for all original UI controls, request input/output, time
   filtering, telemetry, health, raw metrics, auto-refresh, and Grafana.
