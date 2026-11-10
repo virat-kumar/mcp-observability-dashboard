@@ -24,6 +24,10 @@ MCP forwarding path. FarmToGo's Grafana, databases, and containers are untouched
 
 ## Terminal availability and capture storage
 
+First fixed source: [`capture-lock-fix-2026-11-09`](https://github.com/virat-kumar/mcp-observability-dashboard/tree/capture-lock-fix-2026-11-09)
+(`580f448f380956cf1d1e47c0cabbdc7ff4f9ddd1`). Before upgrading or rebuilding,
+follow [UPGRADE.md](UPGRADE.md) to preserve this remedy and test the new image.
+
 Capture storage must not block MCP traffic. The standalone gateway bounds SQLite
 write contention to 50 ms and preserves upstream responses if capture persistence
 fails. Capture-offset ingestion commits even when no new records are found;
